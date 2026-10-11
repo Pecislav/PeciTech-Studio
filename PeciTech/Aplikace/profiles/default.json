@@ -1,0 +1,193 @@
+{
+    "name": "Výchozí Profil",
+    "brightness": 255,
+    "buttons": [
+        {
+            "id": 0,
+            "label": "Mute",
+            "icon": "mute",
+            "custom_icon": "",
+            "action_type": "volume",
+            "action_param": "mute"
+        },
+        {
+            "id": 1,
+            "label": "Play/Pause",
+            "icon": "play",
+            "custom_icon": "",
+            "action_type": "media",
+            "action_param": "play_pause"
+        },
+        {
+            "id": 2,
+            "label": "Next",
+            "icon": "next",
+            "custom_icon": "",
+            "action_type": "media",
+            "action_param": "next"
+        },
+        {
+            "id": 3,
+            "label": "Prev",
+            "icon": "prev",
+            "custom_icon": "",
+            "action_type": "media",
+            "action_param": "prev"
+        },
+        {
+            "id": 4,
+            "label": "Screenshot",
+            "icon": "screenshot",
+            "custom_icon": "",
+            "action_type": "hotkey",
+            "action_param": "win+shift+s"
+        },
+        {
+            "id": 5,
+            "label": "Kalkulačka",
+            "icon": "calc",
+            "custom_icon": "",
+            "action_type": "app",
+            "action_param": "calc.exe"
+        },
+        {
+            "id": 6,
+            "label": "Discord Mute",
+            "icon": "mic_mute",
+            "custom_icon": "",
+            "action_type": "discord",
+            "action_param": "mute"
+        },
+        {
+            "id": 7,
+            "label": "Zamknout",
+            "icon": "lock",
+            "custom_icon": "",
+            "action_type": "hotkey",
+            "action_param": "win+l"
+        }
+    ],
+    "encoders": [
+        {
+            "id": 0,
+            "name": "Hlasitost",
+            "cw": {
+                "action_type": "volume",
+                "action_param": "up"
+            },
+            "ccw": {
+                "action_type": "volume",
+                "action_param": "down"
+            },
+            "btn": {
+                "action_type": "volume",
+                "action_param": "mute"
+            }
+        },
+        {
+            "id": 1,
+            "name": "Média",
+            "cw": {
+                "action_type": "media",
+                "action_param": "next"
+            },
+            "ccw": {
+                "action_type": "media",
+                "action_param": "prev"
+            },
+            "btn": {
+                "action_type": "media",
+                "action_param": "play_pause"
+            }
+        },
+        {
+            "id": 2,
+            "name": "Jas",
+            "cw": {
+                "action_type": "none",
+                "action_param": ""
+            },
+            "ccw": {
+                "action_type": "none",
+                "action_param": ""
+            },
+            "btn": {
+                "action_type": "none",
+                "action_param": ""
+            }
+        }
+    ],
+    "pages": [
+        {
+            "id": 0,
+            "name": "Stránka 1",
+            "buttons": [
+                {
+                    "id": 0,
+                    "label": "Mute",
+                    "icon": "mute",
+                    "custom_icon": "",
+                    "action_type": "volume",
+                    "action_param": "mute"
+                },
+                {
+                    "id": 1,
+                    "label": "Play/Pause",
+                    "icon": "play",
+                    "custom_icon": "",
+                    "action_type": "media",
+                    "action_param": "play_pause"
+                },
+                {
+                    "id": 2,
+                    "label": "Next",
+                    "icon": "next",
+                    "custom_icon": "",
+                    "action_type": "media",
+                    "action_param": "next"
+                },
+                {
+                    "id": 3,
+                    "label": "Prev",
+                    "icon": "prev",
+                    "custom_icon": "",
+                    "action_type": "media",
+                    "action_param": "prev"
+                },
+                {
+                    "id": 4,
+                    "label": "Screenshot",
+                    "icon": "screenshot",
+                    "custom_icon": "",
+                    "action_type": "hotkey",
+                    "action_param": "win+shift+s"
+                },
+                {
+                    "id": 5,
+                    "label": "Kalkulačka",
+                    "icon": "calc",
+                    "custom_icon": "",
+                    "action_type": "app",
+                    "action_param": "calc.exe"
+                },
+                {
+                    "id": 6,
+                    "label": "Discord Mute",
+                    "icon": "mic_mute",
+                    "custom_icon": "",
+                    "action_type": "discord",
+                    "action_param": "mute"
+                },
+                {
+                    "id": 7,
+                    "label": "Zamknout",
+                    "icon": "lock",
+                    "custom_icon": "",
+                    "action_type": "hotkey",
+                    "action_param": "win+l"
+                }
+            ]
+        }
+    ],
+    "active_page": 0
+}

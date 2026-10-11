@@ -1,0 +1,26 @@
+{
+    "theme": "dark",
+    "accent_color": "#FF7A29",
+    "minimize_to_tray": true,
+    "start_with_windows": false,
+    "last_com_port": "AUTO",
+    "obs": {
+        "host": "localhost",
+        "port": 4455,
+        "password": "",
+        "auto_connect": false
+    },
+    "discord": {
+        "mute_key": "ctrl+shift+m",
+        "deafen_key": "ctrl+shift+d",
+        "ptt_key": "ctrl+shift+p",
+        "disconnect_key": "ctrl+shift+h"
+    },
+    "twitch": {
+        "channel": "",
+        "oauth_token": "",
+        "client_id": "",
+        "user_id": ""
+    },
+    "active_profile": "default"
+}
