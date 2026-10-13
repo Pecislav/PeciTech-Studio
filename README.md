@@ -19,7 +19,6 @@ Projekt zahrnuje jak moderní desktopovou aplikaci pro Windows v **CustomTkinter
   - Rychlé čtení 8 tlačítek s hardwarovým debouncingem
   - Podpora 3 rotačních enkodérů se stiskem
   - Obousměrný sériový protokol pro live streaming ikon a konfigurace
-- **`Logo/`** – Vektorová a rastrová grafika loga PeciTech (SVG, DXF, PNG)
 
 ---
 

@@ -23,3 +23,8 @@ Desktop.ini
 # Temporary files
 *.tmp
 *.log
+
+# Design source files & local documentation (not needed in git repository)
+Logo/
+vizuál/
+*.docx

@@ -4,84 +4,94 @@
     "buttons": [
         {
             "id": 0,
-            "label": "Zpět",
-            "icon": "back",
+            "label": "Výchozí Pr",
+            "icon": "folder",
             "custom_icon": "",
-            "action_type": "page",
-            "action_param": "goto:0"
+            "action_type": "profile",
+            "action_param": "default"
         },
         {
             "id": 1,
-            "label": "",
-            "icon": "",
-            "action_type": "none",
-            "action_param": ""
-        },
-        {
-            "id": 2,
-            "label": "",
-            "icon": "",
-            "action_type": "none",
-            "action_param": ""
-        },
-        {
-            "id": 3,
-            "label": "",
-            "icon": "",
-            "action_type": "none",
-            "action_param": ""
-        },
-        {
-            "id": 4,
-            "label": "Microfon",
+            "label": "Discord",
             "icon": "mic",
             "custom_icon": "",
-            "action_type": "obs",
-            "action_param": "mute:Mikrofon / AUX"
-        },
-        {
-            "id": 5,
-            "label": "Play/Pauza",
-            "icon": "spotify",
-            "custom_icon": "",
-            "action_type": "media",
-            "action_param": "play_pause",
+            "action_type": "discord",
+            "action_param": "mute",
             "icon2": "",
             "custom_icon2": "",
             "label2": ""
         },
         {
-            "label": "Okno",
-            "icon": "hotkey",
+            "id": 2,
+            "label": "",
+            "icon": "",
             "custom_icon": "",
-            "action_type": "obs",
-            "action_param": "mute:Záznam zvuku aplikace (BETA)",
-            "id": 6
+            "action_type": "none",
+            "action_param": "",
+            "actions": []
         },
         {
-            "label": "Discord",
-            "icon": "discord",
+            "id": 3,
+            "label": "Zvuk/OBS",
+            "icon": "vol_up",
+            "custom_icon": "",
+            "action_type": "page",
+            "action_param": "folder:1"
+        },
+        {
+            "id": 4,
+            "label": "LIVE",
+            "icon": "rec",
             "custom_icon": "",
             "action_type": "obs",
-            "action_param": "mute:Discord",
-            "id": 7
+            "action_param": "toggle_stream",
+            "icon2": "",
+            "custom_icon2": "",
+            "label2": ""
+        },
+        {
+            "id": 5,
+            "label": "Značka",
+            "icon": "marker",
+            "custom_icon": "",
+            "action_type": "twitch",
+            "action_param": "marker"
+        },
+        {
+            "id": 6,
+            "label": "Kamera",
+            "icon": "screenshot",
+            "custom_icon": "",
+            "action_type": "page",
+            "action_param": "folder:3",
+            "icon2": "",
+            "custom_icon2": "",
+            "label2": ""
+        },
+        {
+            "id": 7,
+            "label": "Sceny/OBS",
+            "icon": "scene",
+            "custom_icon": "",
+            "action_type": "page",
+            "action_param": "folder:2"
         }
     ],
     "encoders": [
         {
             "id": 0,
-            "name": "OBS: Spotify",
+            "name": "Hlasitost",
             "cw": {
-                "action_type": "obs",
-                "action_param": "vol_up:Spotify"
+                "action_type": "volume",
+                "action_param": "up"
             },
             "ccw": {
-                "action_type": "obs",
-                "action_param": "vol_down:Spotify"
+                "action_type": "volume",
+                "action_param": "down"
             },
             "btn": {
-                "action_type": "obs",
-                "action_param": "mute:Spotify"
+                "action_type": "volume",
+                "action_param": "mute"
             }
         },
         {
@@ -117,7 +127,7 @@
             }
         }
     ],
-    "active_page": 1,
+    "active_page": 0,
     "pages": [
         {
             "id": 0,

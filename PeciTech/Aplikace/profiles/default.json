@@ -77,18 +77,18 @@
     "encoders": [
         {
             "id": 0,
-            "name": "E1",
+            "name": "Hlasitost",
             "cw": {
-                "action_type": "none",
-                "action_param": ""
+                "action_type": "volume",
+                "action_param": "up"
             },
             "ccw": {
-                "action_type": "none",
-                "action_param": ""
+                "action_type": "volume",
+                "action_param": "down"
             },
             "btn": {
-                "action_type": "none",
-                "action_param": ""
+                "action_type": "volume",
+                "action_param": "mute"
             }
         },
         {
@@ -109,18 +109,18 @@
         },
         {
             "id": 2,
-            "name": "Jas",
+            "name": "Jas displeje",
             "cw": {
-                "action_type": "none",
-                "action_param": ""
+                "action_type": "brightness",
+                "action_param": "up"
             },
             "ccw": {
-                "action_type": "none",
-                "action_param": ""
+                "action_type": "brightness",
+                "action_param": "down"
             },
             "btn": {
-                "action_type": "none",
-                "action_param": ""
+                "action_type": "brightness",
+                "action_param": "toggle"
             }
         }
     ],

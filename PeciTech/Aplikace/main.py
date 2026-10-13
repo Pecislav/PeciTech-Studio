@@ -23,7 +23,8 @@ from ui.dashboard_view import DashboardView
 from ui.deck_view import DeckView
 from ui.settings_view import SettingsModal
 
-LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "Logo", "PeciTech_logo_aplikace.png")
+_app_assets_logo = os.path.join(os.path.dirname(__file__), "assets", "PeciTech_logo_aplikace.png")
+LOGO_PATH = _app_assets_logo if os.path.exists(_app_assets_logo) else os.path.join(os.path.dirname(__file__), "..", "..", "Logo", "PeciTech_logo_aplikace.png")
 import ctypes
 kernel32 = ctypes.windll.kernel32
 user32 = ctypes.windll.user32
