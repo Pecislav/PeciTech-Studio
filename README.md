@@ -1,59 +1,82 @@
 <div align="center">
-# PeciTech-Studio
 
-<p align="center">
-  <strong>The Ultimate Open-Source Stream Controller & Macro Deck Ecosystem</strong>
-</p>
+  <h1>PeciTech Studio 🎛️</h1>
 
-<p align="center">
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10+" /></a>
-  <a href="https://www.espressif.com/"><img src="https://img.shields.io/badge/Hardware-ESP32-E7352C?style=for-the-badge&logo=espressif&logoColor=white" alt="ESP32" /></a>
-  <a href="https://obsproject.com/"><img src="https://img.shields.io/badge/OBS_Studio-WebSocket_v5-302E31?style=for-the-badge&logo=obsstudio&logoColor=white" alt="OBS Studio" /></a>
-  <img src="https://img.shields.io/badge/Platform-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows" />
-  <img src="https://img.shields.io/badge/UI-CustomTkinter-FF7A29?style=for-the-badge" alt="CustomTkinter" />
-  <img src="https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge" alt="MIT License" />
-</p>
+  <p>
+    <em><strong>The Ultimate Open-Source Stream Controller & Macro Deck Ecosystem</strong></em>
+  </p>
 
----
+  <p>
+    <img src="https://img.shields.io/badge/VERSION-1.1.0--STABLE-FF7A29?style=for-the-badge" alt="Version" />
+    <img src="https://img.shields.io/badge/PLATFORM-WINDOWS-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Platform" />
+    <img src="https://img.shields.io/badge/HARDWARE-ESP32-E7352C?style=for-the-badge&logo=espressif&logoColor=white" alt="Hardware" />
+    <img src="https://img.shields.io/badge/DESIGN-DARK_CYBERPUNK-FF7A29?style=for-the-badge" alt="Design" />
+  </p>
+  <p>
+    <img src="https://img.shields.io/badge/OBS_STUDIO-WEBSOCKET_V5-302E31?style=for-the-badge&logo=obsstudio&logoColor=white" alt="OBS Studio" />
+    <img src="https://img.shields.io/badge/PYTHON-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+    <img src="https://img.shields.io/badge/LICENSE-MIT-22C55E?style=for-the-badge" alt="License" />
+  </p>
 
-## ⚡ Overview
+  <p>
+    <strong>Complete All-in-One ecosystem engineered for streamers, video editors, and power users.<br>
+    Tactile physical macro deck with dual-state buttons, rotary encoder audio scrubbing, and zero-latency hardware sync.</strong>
+  </p>
 
-**PeciTech Studio** is a modern, high-performance desktop controller suite and companion firmware for the **PeciDeck MK.1** — a DIY macro pad featuring **8 mechanical switches**, **3 rotary encoders**, and a **vibrant ST7789 IPS display**.
-
-Whether you're streaming on Twitch/YouTube, scrubbing timelines in DaVinci Resolve, managing Discord audio, or automating complex workflows with multi-step macros, PeciTech Studio gives you full tactile control at your fingertips.
-
----
-
-## ✨ Features at a Glance
-
-### 🎛️ Hardware Companion (PeciDeck MK.1)
-- **Live Bidirectional USB-Serial Protocol**: High-speed communication (115200 baud) for instant button triggers, encoder feedback, and real-time screen icon rendering.
-- **Vibrant TFT Display**: Live rendering of active profiles, button labels, icons, and encoder feedback.
-- **Triple Rotary Encoders with Push Buttons**: Smooth scrubbing for master volume, discrete OBS audio tracks, song seeking, display brightness, and scene cycling.
-
-### 🎨 Desktop Studio Experience
-- **Modern Dark UI**: Built with CustomTkinter in a clean cyberpunk-inspired palette (`#0B0B0E` / `#FF7A29` accent).
-- **Interactive Property Inspector**: Click any key or encoder on your virtual deck to customize action targets, titles, font styles, and icons on the fly.
-- **Dual-State Toggle Buttons**: Assign separate icons, labels, and actions for state 1 / state 2 (e.g. Mute/Unmute, Camera On/Off).
-- **Profile & Folder Management**: Create dedicated profiles (`Stream`, `Gaming`, `Editing`) and nest actions into hierarchical folders with one-click return.
-
-### 📹 Deep OBS Studio Integration (WebSocket v5)
-- **Audio Scrubbing on Encoders**: Rotate encoders to increase/decrease specific audio tracks (Spotify, Mic, Desktop Audio) in 2 dB steps, and press to toggle mute.
-- **Scene Switching**: One-touch scene transitions with automatic scene list fetching.
-- **Stream & Recording Control**: Start, pause, and stop broadcast/recording with visual feedback.
-
-### ⌨️ Universal Smart Hotkey Engine
-- **Layout-Independent Recording**: Captures physical hardware scan codes directly — zero conflicts between QWERTY/QWERTZ or Czech/English layouts.
-- **Visual Key Badges**: Interactive recording dialog showing physical keys (<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>2</kbd>).
-- **Reliable Background Dispatch**: Guaranteed 45 ms key-hold time ensures background apps, Discord, and DirectX games never miss a shortcut.
-
-### 🚀 Performance & Low Latency
-- **Gaming Mouse Optimized**: Custom GIL switch interval prevents cursor stutter even with high-polling rate gaming mice (1000 Hz).
-- **Native Single-Instance Mutex**: Prevents duplicate processes, protects serial port access, and restores the window from the tray automatically.
+</div>
 
 ---
 
-## 📁 Repository Structure
+## 🧭 About PeciTech Studio
+
+**PeciTech Studio** is a modern desktop suite and companion microcontroller firmware built from the ground up to bring tactile, hardware-grade control to your daily workflow.
+
+Featuring a sleek visual design with a cyberpunk-inspired dark palette (`#0B0B0E` with `#FF7A29` warm accent), smooth CustomTkinter controls, and real-time bidirectional USB-Serial communication, PeciTech Studio pairs seamlessly with the **PeciDeck MK.1** physical macro pad to replace fragile hotkey setups with an intuitive, unified workstation.
+
+---
+
+## 🧩 Key Features & Modules
+
+### 🎛️ 1. PeciDeck MK.1 — Hardware Companion
+- ⚡ **High-Speed Bidirectional Serial Bridge**: Real-time communication over USB-Serial (115200 baud) with sub-millisecond trigger latency.
+- 🖥️ **Live TFT Screen Rendering**: Dynamic color screen rendering showing active button icons, labels, page indicators, and encoder levels on the ST7789 display.
+- 🎚️ **Triple Precision Encoders with Push Buttons**: Smooth scrubbing for master audio, discrete OBS audio tracks, song seeking, display brightness, and scene cycling.
+
+### 🎨 2. Desktop Studio Suite & Property Inspector
+- 🖌️ **Modern Dark-Themed UI**: Clean, responsive layout crafted with CustomTkinter, featuring high-contrast typography and glowing active badges.
+- 🔍 **Interactive Property Inspector**: Click any button or rotary dial on the virtual deck to instantly inspect and configure its action, target, custom icons, and typography.
+- 🔄 **Dual-State Dynamic Buttons**: Set separate icons and labels for active vs. inactive states (e.g., Mic Muted / Unmuted, Camera On / Off) with live hardware sync.
+- 📁 **Profile & Hierarchical Folder System**: Create dedicated profiles (`Stream`, `Gaming`, `Editing`) and nest actions into multi-level folders with one-touch navigation.
+
+### 📹 3. Deep OBS Studio Integration (WebSocket v5)
+- 🔊 **Rotary Encoder Audio Scrubbing**: Rotate knobs to adjust specific audio inputs (Spotify, Mic/Aux, Game Audio) in precise 2 dB increments, and click to toggle mute.
+- 🎬 **Scene Management**: One-touch scene transitions with automatic scene list discovery and visual feedback.
+- 🔴 **Broadcast & Recording Control**: Start, pause, and stop streaming or recording sessions with color-coded status badges.
+
+### ⌨️ 4. Universal Smart Hotkey Engine
+- 🌐 **Hardware Scan-Code Capture**: 100% layout-independent key recording using physical scan codes — zero conflicts between QWERTY, QWERTZ, or localized keyboards.
+- ⏱️ **Guaranteed Background Key Injection**: 45 ms hold time prevents dropped keystrokes in background apps, Discord, DaVinci Resolve, and DirectX games.
+- 🏷️ **Interactive Key Badge Recorder**: Press any physical key combination to see real-time visual badges (<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd>) and save instantly.
+
+### ⚡ 5. Low-Latency Performance & Single Instance
+- 🖱️ **Gaming Mouse Optimized (1000 Hz)**: Tuned GIL switch interval eliminates mouse stutter and cursor lag even during intense gameplay.
+- 🛡️ **Win32 Mutex Protection**: Prevents duplicate application instances, guarantees clean COM port acquisition, and restores existing windows from the system tray automatically.
+
+---
+
+## 🔌 Hardware Specifications (PeciDeck MK.1)
+
+| Component | Specification | Description |
+| :--- | :--- | :--- |
+| **Microcontroller** | ESP32 Dev Module | Dual-core 240 MHz, 4MB Flash, high-speed hardware SPI |
+| **Display** | 1.3" / 1.54" ST7789 IPS LCD | 240×240 / 240×280 resolution, 16-bit high-contrast color |
+| **Keys** | 8× Mechanical Switches | Cherry MX / Gateron style tactile mechanical switches |
+| **Encoders** | 3× EC11 Rotary Encoders | 20 pulses/rev with integrated tactile push buttons |
+| **Connection** | USB Type-C | Hardware UART serial communication @ 115200 Baud |
+
+---
+
+## 📁 Project Structure
 
 ```plaintext
 PeciTech-Studio/
@@ -77,28 +100,16 @@ PeciTech-Studio/
 
 ---
 
-## 🔌 Hardware Specs (PeciDeck MK.1)
+## 🚀 Quick Start Guide
 
-| Component | Specification |
-| :--- | :--- |
-| **Microcontroller** | ESP32 Dev Module (Dual-core 240 MHz, 4MB Flash) |
-| **Display** | 1.3" / 1.54" ST7789 IPS LCD (240×240 / 240×280 via SPI) |
-| **Keys** | 8× Mechanical Switches (Cherry MX / Gateron style) |
-| **Encoders** | 3× EC11 Rotary Encoders with Integrated Push Buttons |
-| **Connection** | USB Type-C (Serial over UART @ 115200 Baud) |
-
----
-
-## 🚀 Getting Started
-
-### 1. Running PeciTech Studio (Windows)
+### 1. Desktop Application (Windows)
 
 1. Ensure **Python 3.10+** is installed on your computer.
 2. Clone this repository:
    ```bash
    git clone https://github.com/Pecislav/PeciTech-Studio.git
    ```
-3. Navigate to the application folder and install dependencies:
+3. Navigate to the application directory and install dependencies:
    ```bash
    cd PeciTech-Studio/PeciTech/Aplikace
    pip install customtkinter pillow pyserial pywin32 websocket-client pystray requests keyboard
@@ -107,20 +118,20 @@ PeciTech-Studio/
    ```bash
    python main.py
    ```
-   *Tip: You can also double-click `Spustit_Aplikaci.bat` for a one-click launch!*
+   *Tip: You can also double-click `Spustit_Aplikaci.bat` for an instant one-click launch!*
 
 ---
 
 ### 2. Flashing the ESP32 Firmware
 
 1. Install **[Arduino IDE](https://www.arduino.cc/en/software)** (or PlatformIO).
-2. Add the ESP32 board package in Arduino IDE (*Boards Manager -> `esp32` by Espressif*).
+2. Install the **ESP32 board package** in Arduino IDE (*Boards Manager -> `esp32` by Espressif*).
 3. Install required libraries:
    - `TFT_eSPI` (configured for ST7789)
-   - `Encoder` or native interrupt pin config
+   - `Encoder` or native hardware interrupt pins
 4. Open `PeciTech/Finware/PeciDeck_Firmware/PeciDeck_Firmware.ino`.
 5. Select board **ESP32 Dev Module**, choose your COM port, and click **Upload**.
-6. Refer to [`PeciTech/Finware/NAVOD_K_NAHRANI.md`](PeciTech/Finware/NAVOD_K_NAHRANI.md) for pinout details and wiring diagrams.
+6. Refer to [`PeciTech/Finware/NAVOD_K_NAHRANI.md`](PeciTech/Finware/NAVOD_K_NAHRANI.md) for wiring schematics and pin assignments.
 
 ---
 
