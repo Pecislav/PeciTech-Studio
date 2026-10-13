@@ -4,100 +4,107 @@
     "buttons": [
         {
             "id": 0,
-            "label": "Mute",
-            "icon": "mute",
+            "label": "Stream",
+            "icon": "obs",
             "custom_icon": "",
-            "action_type": "volume",
-            "action_param": "mute"
+            "action_type": "profile",
+            "action_param": "stream"
         },
         {
             "id": 1,
-            "label": "Play/Pause",
-            "icon": "play",
+            "label": "",
+            "icon": "",
             "custom_icon": "",
-            "action_type": "media",
-            "action_param": "play_pause"
+            "action_type": "none",
+            "action_param": "",
+            "actions": []
         },
         {
             "id": 2,
-            "label": "Next",
-            "icon": "next",
+            "label": "",
+            "icon": "",
             "custom_icon": "",
-            "action_type": "media",
-            "action_param": "next"
+            "action_type": "none",
+            "action_param": "",
+            "actions": []
         },
         {
             "id": 3,
-            "label": "Prev",
-            "icon": "prev",
+            "label": "",
+            "icon": "",
             "custom_icon": "",
-            "action_type": "media",
-            "action_param": "prev"
+            "action_type": "none",
+            "action_param": "",
+            "actions": []
         },
         {
             "id": 4,
-            "label": "Screenshot",
-            "icon": "screenshot",
+            "label": "",
+            "icon": "",
             "custom_icon": "",
-            "action_type": "hotkey",
-            "action_param": "win+shift+s"
+            "action_type": "none",
+            "action_param": "",
+            "actions": []
         },
         {
             "id": 5,
-            "label": "Kalkulačka",
-            "icon": "calc",
+            "label": "",
+            "icon": "",
             "custom_icon": "",
-            "action_type": "app",
-            "action_param": "calc.exe"
+            "action_type": "none",
+            "action_param": "",
+            "actions": []
         },
         {
             "id": 6,
-            "label": "Discord Mute",
-            "icon": "mic_mute",
+            "label": "",
+            "icon": "",
             "custom_icon": "",
-            "action_type": "discord",
-            "action_param": "mute"
+            "action_type": "none",
+            "action_param": "",
+            "actions": []
         },
         {
             "id": 7,
-            "label": "Zamknout",
-            "icon": "lock",
+            "label": "",
+            "icon": "",
             "custom_icon": "",
-            "action_type": "hotkey",
-            "action_param": "win+l"
+            "action_type": "none",
+            "action_param": "",
+            "actions": []
         }
     ],
     "encoders": [
         {
             "id": 0,
-            "name": "Hlasitost",
+            "name": "E1",
             "cw": {
-                "action_type": "volume",
-                "action_param": "up"
+                "action_type": "none",
+                "action_param": ""
             },
             "ccw": {
-                "action_type": "volume",
-                "action_param": "down"
+                "action_type": "none",
+                "action_param": ""
             },
             "btn": {
-                "action_type": "volume",
-                "action_param": "mute"
+                "action_type": "none",
+                "action_param": ""
             }
         },
         {
             "id": 1,
-            "name": "Média",
+            "name": "E2",
             "cw": {
-                "action_type": "media",
-                "action_param": "next"
+                "action_type": "none",
+                "action_param": ""
             },
             "ccw": {
-                "action_type": "media",
-                "action_param": "prev"
+                "action_type": "none",
+                "action_param": ""
             },
             "btn": {
-                "action_type": "media",
-                "action_param": "play_pause"
+                "action_type": "none",
+                "action_param": ""
             }
         },
         {
@@ -124,67 +131,74 @@
             "buttons": [
                 {
                     "id": 0,
-                    "label": "Mute",
-                    "icon": "mute",
+                    "label": "Stream",
+                    "icon": "obs",
                     "custom_icon": "",
-                    "action_type": "volume",
-                    "action_param": "mute"
+                    "action_type": "profile",
+                    "action_param": "stream"
                 },
                 {
                     "id": 1,
-                    "label": "Play/Pause",
-                    "icon": "play",
+                    "label": "",
+                    "icon": "",
                     "custom_icon": "",
-                    "action_type": "media",
-                    "action_param": "play_pause"
+                    "action_type": "none",
+                    "action_param": "",
+                    "actions": []
                 },
                 {
                     "id": 2,
-                    "label": "Next",
-                    "icon": "next",
+                    "label": "",
+                    "icon": "",
                     "custom_icon": "",
-                    "action_type": "media",
-                    "action_param": "next"
+                    "action_type": "none",
+                    "action_param": "",
+                    "actions": []
                 },
                 {
                     "id": 3,
-                    "label": "Prev",
-                    "icon": "prev",
+                    "label": "",
+                    "icon": "",
                     "custom_icon": "",
-                    "action_type": "media",
-                    "action_param": "prev"
+                    "action_type": "none",
+                    "action_param": "",
+                    "actions": []
                 },
                 {
                     "id": 4,
-                    "label": "Screenshot",
-                    "icon": "screenshot",
+                    "label": "",
+                    "icon": "",
                     "custom_icon": "",
-                    "action_type": "hotkey",
-                    "action_param": "win+shift+s"
+                    "action_type": "none",
+                    "action_param": "",
+                    "actions": []
                 },
                 {
                     "id": 5,
-                    "label": "Kalkulačka",
-                    "icon": "calc",
+                    "label": "",
+                    "icon": "",
                     "custom_icon": "",
-                    "action_type": "app",
-                    "action_param": "calc.exe"
+                    "action_type": "none",
+                    "action_param": "",
+                    "actions": []
                 },
                 {
                     "id": 6,
-                    "label": "Discord Mute",
-                    "icon": "mic_mute",
+                    "label": "",
+                    "icon": "",
                     "custom_icon": "",
-                    "action_type": "discord",
-                    "action_param": "mute"
+                    "action_type": "none",
+                    "action_param": "",
+                    "actions": []
                 },
                 {
                     "id": 7,
-                    "label": "Zamknout",
-                    "icon": "lock",
+                    "label": "",
+                    "icon": "",
                     "custom_icon": "",
-                    "action_type": "hotkey",
-                    "action_param": "win+l"
+                    "action_type": "none",
+                    "action_param": "",
+                    "actions": []
                 }
             ]
         }

@@ -1,0 +1,415 @@
+{
+    "name": "Stream",
+    "brightness": 255,
+    "buttons": [
+        {
+            "id": 0,
+            "label": "Zpět",
+            "icon": "back",
+            "custom_icon": "",
+            "action_type": "page",
+            "action_param": "goto:0"
+        },
+        {
+            "id": 1,
+            "label": "",
+            "icon": "",
+            "action_type": "none",
+            "action_param": ""
+        },
+        {
+            "id": 2,
+            "label": "",
+            "icon": "",
+            "action_type": "none",
+            "action_param": ""
+        },
+        {
+            "id": 3,
+            "label": "",
+            "icon": "",
+            "action_type": "none",
+            "action_param": ""
+        },
+        {
+            "id": 4,
+            "label": "Microfon",
+            "icon": "mic",
+            "custom_icon": "",
+            "action_type": "obs",
+            "action_param": "mute:Mikrofon / AUX"
+        },
+        {
+            "id": 5,
+            "label": "Play/Pauza",
+            "icon": "spotify",
+            "custom_icon": "",
+            "action_type": "media",
+            "action_param": "play_pause",
+            "icon2": "",
+            "custom_icon2": "",
+            "label2": ""
+        },
+        {
+            "label": "Okno",
+            "icon": "hotkey",
+            "custom_icon": "",
+            "action_type": "obs",
+            "action_param": "mute:Záznam zvuku aplikace (BETA)",
+            "id": 6
+        },
+        {
+            "label": "Discord",
+            "icon": "discord",
+            "custom_icon": "",
+            "action_type": "obs",
+            "action_param": "mute:Discord",
+            "id": 7
+        }
+    ],
+    "encoders": [
+        {
+            "id": 0,
+            "name": "OBS: Spotify",
+            "cw": {
+                "action_type": "obs",
+                "action_param": "vol_up:Spotify"
+            },
+            "ccw": {
+                "action_type": "obs",
+                "action_param": "vol_down:Spotify"
+            },
+            "btn": {
+                "action_type": "obs",
+                "action_param": "mute:Spotify"
+            }
+        },
+        {
+            "id": 1,
+            "name": "OBS: Spotify",
+            "cw": {
+                "action_type": "obs",
+                "action_param": "vol_up:Spotify"
+            },
+            "ccw": {
+                "action_type": "obs",
+                "action_param": "vol_down:Spotify"
+            },
+            "btn": {
+                "action_type": "obs",
+                "action_param": "mute:Spotify"
+            }
+        },
+        {
+            "id": 2,
+            "name": "Enkodér E3",
+            "cw": {
+                "action_type": "none",
+                "action_param": ""
+            },
+            "ccw": {
+                "action_type": "none",
+                "action_param": ""
+            },
+            "btn": {
+                "action_type": "none",
+                "action_param": ""
+            }
+        }
+    ],
+    "active_page": 1,
+    "pages": [
+        {
+            "id": 0,
+            "name": "Hlavní stránka",
+            "buttons": [
+                {
+                    "id": 0,
+                    "label": "Výchozí Pr",
+                    "icon": "folder",
+                    "custom_icon": "",
+                    "action_type": "profile",
+                    "action_param": "default"
+                },
+                {
+                    "id": 1,
+                    "label": "Discord",
+                    "icon": "mic",
+                    "custom_icon": "",
+                    "action_type": "discord",
+                    "action_param": "mute",
+                    "icon2": "",
+                    "custom_icon2": "",
+                    "label2": ""
+                },
+                {
+                    "id": 2,
+                    "label": "",
+                    "icon": "",
+                    "custom_icon": "",
+                    "action_type": "none",
+                    "action_param": "",
+                    "actions": []
+                },
+                {
+                    "id": 3,
+                    "label": "Zvuk/OBS",
+                    "icon": "vol_up",
+                    "custom_icon": "",
+                    "action_type": "page",
+                    "action_param": "folder:1"
+                },
+                {
+                    "id": 4,
+                    "label": "LIVE",
+                    "icon": "rec",
+                    "custom_icon": "",
+                    "action_type": "obs",
+                    "action_param": "toggle_stream",
+                    "icon2": "",
+                    "custom_icon2": "",
+                    "label2": ""
+                },
+                {
+                    "id": 5,
+                    "label": "Značka",
+                    "icon": "marker",
+                    "custom_icon": "",
+                    "action_type": "twitch",
+                    "action_param": "marker"
+                },
+                {
+                    "id": 6,
+                    "label": "Kamera",
+                    "icon": "screenshot",
+                    "custom_icon": "",
+                    "action_type": "page",
+                    "action_param": "folder:3",
+                    "icon2": "",
+                    "custom_icon2": "",
+                    "label2": ""
+                },
+                {
+                    "id": 7,
+                    "label": "Sceny/OBS",
+                    "icon": "scene",
+                    "custom_icon": "",
+                    "action_type": "page",
+                    "action_param": "folder:2"
+                }
+            ]
+        },
+        {
+            "id": 1,
+            "name": "📁 Zvuk",
+            "buttons": [
+                {
+                    "id": 0,
+                    "label": "Zpět",
+                    "icon": "back",
+                    "custom_icon": "",
+                    "action_type": "page",
+                    "action_param": "goto:0"
+                },
+                {
+                    "id": 1,
+                    "label": "",
+                    "icon": "",
+                    "action_type": "none",
+                    "action_param": ""
+                },
+                {
+                    "id": 2,
+                    "label": "",
+                    "icon": "",
+                    "action_type": "none",
+                    "action_param": ""
+                },
+                {
+                    "id": 3,
+                    "label": "",
+                    "icon": "",
+                    "action_type": "none",
+                    "action_param": ""
+                },
+                {
+                    "id": 4,
+                    "label": "Microfon",
+                    "icon": "mic",
+                    "custom_icon": "",
+                    "action_type": "obs",
+                    "action_param": "mute:Mikrofon / AUX"
+                },
+                {
+                    "id": 5,
+                    "label": "Play/Pauza",
+                    "icon": "spotify",
+                    "custom_icon": "",
+                    "action_type": "media",
+                    "action_param": "play_pause",
+                    "icon2": "",
+                    "custom_icon2": "",
+                    "label2": ""
+                },
+                {
+                    "label": "Okno",
+                    "icon": "hotkey",
+                    "custom_icon": "",
+                    "action_type": "obs",
+                    "action_param": "mute:Záznam zvuku aplikace (BETA)",
+                    "id": 6
+                },
+                {
+                    "label": "Discord",
+                    "icon": "discord",
+                    "custom_icon": "",
+                    "action_type": "obs",
+                    "action_param": "mute:Discord",
+                    "id": 7
+                }
+            ],
+            "is_folder": true,
+            "parent_page": 0
+        },
+        {
+            "id": 2,
+            "name": "📁 Sceny",
+            "buttons": [
+                {
+                    "id": 0,
+                    "label": "Zpět",
+                    "icon": "back",
+                    "custom_icon": "",
+                    "action_type": "page",
+                    "action_param": "goto:0"
+                },
+                {
+                    "id": 1,
+                    "label": "",
+                    "icon": "",
+                    "action_type": "none",
+                    "action_param": ""
+                },
+                {
+                    "id": 2,
+                    "label": "",
+                    "icon": "",
+                    "custom_icon": "",
+                    "action_type": "none",
+                    "action_param": "",
+                    "actions": []
+                },
+                {
+                    "id": 3,
+                    "label": "",
+                    "icon": "",
+                    "action_type": "none",
+                    "action_param": ""
+                },
+                {
+                    "label": "HLAVNI",
+                    "icon": "scene",
+                    "custom_icon": "",
+                    "action_type": "obs",
+                    "action_param": "scene:HLAVNÍ SCÉNA",
+                    "id": 4
+                },
+                {
+                    "id": 5,
+                    "label": "JÁ",
+                    "icon": "scene",
+                    "custom_icon": "",
+                    "action_type": "obs",
+                    "action_param": "scene:JÁ"
+                },
+                {
+                    "label": "PAUZA",
+                    "icon": "scene",
+                    "custom_icon": "",
+                    "action_type": "obs",
+                    "action_param": "scene:STREAM PAUZA",
+                    "id": 6
+                },
+                {
+                    "label": "KONEC",
+                    "icon": "scene",
+                    "custom_icon": "",
+                    "action_type": "obs",
+                    "action_param": "scene:STRAM KONČÍ",
+                    "id": 7
+                }
+            ],
+            "is_folder": true,
+            "parent_page": 0
+        },
+        {
+            "id": 3,
+            "name": "📁 Kamera",
+            "buttons": [
+                {
+                    "id": 0,
+                    "label": "Zpět",
+                    "icon": "back",
+                    "custom_icon": "",
+                    "action_type": "page",
+                    "action_param": "goto:0"
+                },
+                {
+                    "label": "Vle/Nah",
+                    "icon": "hotkey",
+                    "custom_icon": "",
+                    "action_type": "hotkey",
+                    "action_param": "alt+1",
+                    "id": 1
+                },
+                {
+                    "label": "Pra/Nah",
+                    "icon": "hotkey",
+                    "custom_icon": "",
+                    "action_type": "hotkey",
+                    "action_param": "alt+3",
+                    "id": 2
+                },
+                {
+                    "id": 3,
+                    "label": "",
+                    "icon": "",
+                    "action_type": "none",
+                    "action_param": ""
+                },
+                {
+                    "id": 4,
+                    "label": "",
+                    "icon": "",
+                    "action_type": "none",
+                    "action_param": ""
+                },
+                {
+                    "id": 5,
+                    "label": "Vle/Dol",
+                    "icon": "hotkey",
+                    "custom_icon": "",
+                    "action_type": "hotkey",
+                    "action_param": "alt+2"
+                },
+                {
+                    "label": "Pra/Dol",
+                    "icon": "hotkey",
+                    "custom_icon": "",
+                    "action_type": "hotkey",
+                    "action_param": "alt+4",
+                    "id": 6
+                },
+                {
+                    "id": 7,
+                    "label": "",
+                    "icon": "",
+                    "action_type": "none",
+                    "action_param": ""
+                }
+            ],
+            "is_folder": true,
+            "parent_page": 0
+        }
+    ]
+}

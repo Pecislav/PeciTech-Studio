@@ -18,7 +18,105 @@ VK_MEDIA_PLAY_PAUSE  = 0xB3
 
 def _send_vk(vk_code):
     ctypes.windll.user32.keybd_event(vk_code, 0, 0, 0)
+    time.sleep(0.015)
     ctypes.windll.user32.keybd_event(vk_code, 0, 2, 0) # KEYEVENTF_KEYUP = 2
+
+# Převodní tabulka z českých znaků (česká klávesnice v OS) na univerzální standardní klávesy
+CZECH_CHAR_TO_STANDARD = {
+    "+": "1",
+    "ě": "2",
+    "š": "3",
+    "č": "4",
+    "ř": "5",
+    "ž": "6",
+    "ý": "7",
+    "á": "8",
+    "í": "9",
+    "é": "0",
+    "ů": ";",
+    "ú": "[",
+    "§": "'",
+    "´": "=",
+    "¨": "\\",
+}
+
+def normalize_hotkey(hotkey):
+    """
+    Normalizuje klávesovou zkratku na univerzální standardní formát:
+    - Převede české znaky (ě -> 2, + -> 1, š -> 3...) na fyzická čísla a znaky
+    - Ošetří zdvojená pluska (např. 'alt++' -> 'alt+1')
+    - Převede na malá písmena a odstraní nežádoucí mezery
+    """
+    if not hotkey:
+        return ""
+    s = str(hotkey).strip().lower()
+    if s.endswith("++") or s == "+":
+        sub = s.rstrip("+")
+        mods = [t.strip() for t in sub.split("+") if t.strip()]
+        parts = mods + ["1"]
+    else:
+        parts = []
+        for t in s.split("+"):
+            t = t.strip()
+            if not t:
+                continue
+            parts.append(CZECH_CHAR_TO_STANDARD.get(t, t))
+    return "+".join(parts)
+
+try:
+    # Nastavíme standardní US layout (00000409) pro proces, aby mapovací tabulky
+    # knihovny keyboard (Virtual-Key i scan-kódy) odpovídaly standardní fyzické klávesnici (1-0, Y/Z)
+    user32 = ctypes.windll.user32
+    hkl_us = user32.LoadKeyboardLayoutW("00000409", 1)
+    if hkl_us:
+        user32.ActivateKeyboardLayout(hkl_us, 0x00000100) # KLF_SETFORPROCESS
+
+    if hasattr(keyboard, "_os_keyboard") and hasattr(keyboard._os_keyboard, "init"):
+        with keyboard._os_keyboard.tables_lock:
+            keyboard._os_keyboard.to_name.clear()
+            keyboard._os_keyboard.from_name.clear()
+            keyboard._os_keyboard.scan_code_to_vk.clear()
+        keyboard._os_keyboard.init()
+except Exception as e:
+    print(f"[ActionHandler] Varování při inicializaci US layoutu: {e}")
+
+def send_reliable_hotkey(hotkey, hold_sec=0.045):
+    """
+    Odešle klávesovou zkratku s hardwarovými scan-kódy a garantovanou dobou držení (hold time).
+    Funguje 100% spolehlivě i když aplikace PeciTech není rozkliknutá (běží na pozadí / v liště),
+    i pro aplikace naslouchající na pozadí (OBS Studio, Discord, DaVinci Resolve) a DirectX hry.
+    """
+    if not hotkey:
+        return
+    hotkey_str = normalize_hotkey(hotkey)
+    if not hotkey_str:
+        return
+
+    try:
+        if hasattr(keyboard, "_os_keyboard") and hasattr(keyboard._os_keyboard, "init"):
+            if not getattr(keyboard._os_keyboard, "scan_code_to_vk", None):
+                keyboard._os_keyboard.init()
+
+        steps = keyboard.parse_hotkey(hotkey_str)
+        for step in steps:
+            # 1. Postupné stisknutí modifikátorů a klávesy v pořadí
+            for scan_codes in step:
+                if scan_codes:
+                    keyboard._os_keyboard.press(scan_codes[0])
+                    time.sleep(0.012)
+            # 2. Garantovaná doba držení kláves pro spolehlivou detekci ve Windows/hrách/OBS
+            time.sleep(hold_sec)
+            # 3. Uvolnění v přesně opačném pořadí
+            for scan_codes in reversed(step):
+                if scan_codes:
+                    keyboard._os_keyboard.release(scan_codes[0])
+                    time.sleep(0.012)
+    except Exception as e:
+        print(f"[ActionHandler] Fallback send pro {hotkey_str}: {e}")
+        try:
+            keyboard.send(hotkey_str)
+        except Exception:
+            pass
 
 class ActionHandler:
     def __init__(self, obs_controller=None, serial_bridge=None, config_manager=None, on_page_change_cb=None, discord_controller=None, twitch_controller=None):
@@ -142,7 +240,7 @@ class ActionHandler:
     def _handle_hotkey(self, param):
         if not param:
             return
-        keyboard.send(param)
+        send_reliable_hotkey(param)
 
     def _handle_app(self, param):
         if not param:
@@ -247,13 +345,13 @@ class ActionHandler:
 
             p = str(param or "").lower().strip()
             if p in ("mute", "toggle_mute"):
-                keyboard.send(mute_key)
+                send_reliable_hotkey(mute_key)
             elif p in ("deafen", "toggle_deafen"):
-                keyboard.send(deafen_key)
+                send_reliable_hotkey(deafen_key)
             elif p in ("ptt", "push_to_talk"):
-                keyboard.send(ptt_key)
+                send_reliable_hotkey(ptt_key)
             elif p in ("disconnect", "leave_call"):
-                keyboard.send(disc_key)
+                send_reliable_hotkey(disc_key)
             elif p in ("open", "launch", "focus"):
                 try:
                     subprocess.Popen(["cmd", "/c", "start", "discord://"], shell=True)

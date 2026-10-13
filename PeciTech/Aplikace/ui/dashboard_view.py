@@ -267,7 +267,7 @@ class DashboardView(ctk.CTkFrame):
         )
         self.lbl_fw.pack(anchor="w")
 
-        # Tlačítko Konfigurovat vpravo
+        # Tlačítko Konfigurovat vpravo (vždy klikatelné pro konfiguraci profilů i offline)
         self.btn_config = ctk.CTkButton(
             info_frame,
             text="Konfigurovat",
@@ -275,11 +275,11 @@ class DashboardView(ctk.CTkFrame):
             height=36,
             corner_radius=8,
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#241E1A",
+            fg_color="#1A1C26",
             border_width=1,
-            border_color="#4D331C",
-            text_color="#888888",
-            hover_color="#332417",
+            border_color="#FF7A29",
+            text_color="#FFFFFF",
+            hover_color="#282C3D",
             command=self.on_configure_cb
         )
         self.btn_config.pack(side="right", pady=4)
@@ -303,11 +303,11 @@ class DashboardView(ctk.CTkFrame):
             self.badge_status.configure(fg_color="#261719", border_color="#48242A")
             self.card_deck.configure(border_color="#242738")
             self.btn_config.configure(
-                fg_color="#241E1A", 
+                fg_color="#1A1C26", 
                 border_width=1,
-                border_color="#4D331C", 
-                text_color="#888888", 
-                hover_color="#332417"
+                border_color="#FF7A29", 
+                text_color="#FFFFFF", 
+                hover_color="#282C3D"
             )
 
     def update_obs_status(self, is_connected):

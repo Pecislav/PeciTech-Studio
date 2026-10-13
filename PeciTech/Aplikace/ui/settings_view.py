@@ -598,28 +598,36 @@ class SettingsModal(ctk.CTkFrame):
         # Mute & Deafen klávesy
         r1 = ctk.CTkFrame(form, fg_color="transparent")
         r1.pack(fill="x", pady=8)
-        ctk.CTkLabel(r1, text="Mute mikrofonu:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#CBD5E1", width=140, anchor="w").pack(side="left")
-        self.entry_disc_mute = ctk.CTkEntry(r1, width=180, height=32, fg_color="#181A25", border_color="#282B3C", border_width=1, corner_radius=8, text_color="#FFFFFF")
+        ctk.CTkLabel(r1, text="Mute mikrofonu:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#CBD5E1", width=130, anchor="w").pack(side="left")
+        self.entry_disc_mute = ctk.CTkEntry(r1, width=140, height=32, fg_color="#181A25", border_color="#282B3C", border_width=1, corner_radius=8, text_color="#FFFFFF")
         self.entry_disc_mute.insert(0, disc_cfg.get("mute_key", "ctrl+shift+m"))
-        self.entry_disc_mute.pack(side="left", padx=(0, 24))
+        self.entry_disc_mute.pack(side="left", padx=(0, 4))
+        btn_rec_mute = ctk.CTkButton(r1, text="⌨", width=34, height=32, corner_radius=8, fg_color="#222534", hover_color="#FF7A29", text_color="#FFFFFF", font=ctk.CTkFont(size=14), command=lambda: self._record_for_entry(self.entry_disc_mute))
+        btn_rec_mute.pack(side="left", padx=(0, 20))
 
-        ctk.CTkLabel(r1, text="Deafen sluchátek:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#CBD5E1", width=140, anchor="w").pack(side="left")
-        self.entry_disc_deafen = ctk.CTkEntry(r1, width=180, height=32, fg_color="#181A25", border_color="#282B3C", border_width=1, corner_radius=8, text_color="#FFFFFF")
+        ctk.CTkLabel(r1, text="Deafen sluchátek:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#CBD5E1", width=130, anchor="w").pack(side="left")
+        self.entry_disc_deafen = ctk.CTkEntry(r1, width=140, height=32, fg_color="#181A25", border_color="#282B3C", border_width=1, corner_radius=8, text_color="#FFFFFF")
         self.entry_disc_deafen.insert(0, disc_cfg.get("deafen_key", "ctrl+shift+d"))
-        self.entry_disc_deafen.pack(side="left")
+        self.entry_disc_deafen.pack(side="left", padx=(0, 4))
+        btn_rec_deafen = ctk.CTkButton(r1, text="⌨", width=34, height=32, corner_radius=8, fg_color="#222534", hover_color="#FF7A29", text_color="#FFFFFF", font=ctk.CTkFont(size=14), command=lambda: self._record_for_entry(self.entry_disc_deafen))
+        btn_rec_deafen.pack(side="left")
 
         # PTT & Disconnect klávesy
         r2 = ctk.CTkFrame(form, fg_color="transparent")
         r2.pack(fill="x", pady=8)
-        ctk.CTkLabel(r2, text="Push-to-Talk (PTT):", font=ctk.CTkFont(size=12, weight="bold"), text_color="#CBD5E1", width=140, anchor="w").pack(side="left")
-        self.entry_disc_ptt = ctk.CTkEntry(r2, width=180, height=32, fg_color="#181A25", border_color="#282B3C", border_width=1, corner_radius=8, text_color="#FFFFFF")
+        ctk.CTkLabel(r2, text="Push-to-Talk (PTT):", font=ctk.CTkFont(size=12, weight="bold"), text_color="#CBD5E1", width=130, anchor="w").pack(side="left")
+        self.entry_disc_ptt = ctk.CTkEntry(r2, width=140, height=32, fg_color="#181A25", border_color="#282B3C", border_width=1, corner_radius=8, text_color="#FFFFFF")
         self.entry_disc_ptt.insert(0, disc_cfg.get("ptt_key", "ctrl+shift+p"))
-        self.entry_disc_ptt.pack(side="left", padx=(0, 24))
+        self.entry_disc_ptt.pack(side="left", padx=(0, 4))
+        btn_rec_ptt = ctk.CTkButton(r2, text="⌨", width=34, height=32, corner_radius=8, fg_color="#222534", hover_color="#FF7A29", text_color="#FFFFFF", font=ctk.CTkFont(size=14), command=lambda: self._record_for_entry(self.entry_disc_ptt))
+        btn_rec_ptt.pack(side="left", padx=(0, 20))
 
-        ctk.CTkLabel(r2, text="Odpojit hovor:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#CBD5E1", width=140, anchor="w").pack(side="left")
-        self.entry_disc_disc = ctk.CTkEntry(r2, width=180, height=32, fg_color="#181A25", border_color="#282B3C", border_width=1, corner_radius=8, text_color="#FFFFFF")
+        ctk.CTkLabel(r2, text="Odpojit hovor:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#CBD5E1", width=130, anchor="w").pack(side="left")
+        self.entry_disc_disc = ctk.CTkEntry(r2, width=140, height=32, fg_color="#181A25", border_color="#282B3C", border_width=1, corner_radius=8, text_color="#FFFFFF")
         self.entry_disc_disc.insert(0, disc_cfg.get("disconnect_key", "ctrl+shift+h"))
-        self.entry_disc_disc.pack(side="left")
+        self.entry_disc_disc.pack(side="left", padx=(0, 4))
+        btn_rec_disc = ctk.CTkButton(r2, text="⌨", width=34, height=32, corner_radius=8, fg_color="#222534", hover_color="#FF7A29", text_color="#FFFFFF", font=ctk.CTkFont(size=14), command=lambda: self._record_for_entry(self.entry_disc_disc))
+        btn_rec_disc.pack(side="left")
 
         # Uložit tlačítko
         r_btns = ctk.CTkFrame(form, fg_color="transparent")
@@ -1331,6 +1339,15 @@ class SettingsModal(ctk.CTkFrame):
     def _test_discord_deafen(self):
         if self.discord:
             self.discord.toggle_deafen()
+
+    def _record_for_entry(self, entry_widget):
+        from ui.hotkey_dialog import HotkeyRecorderDialog
+        curr = entry_widget.get().strip() if entry_widget else ""
+        dlg = HotkeyRecorderDialog(self, current_value=curr, title="Záznam klávesové zkratky")
+        res = dlg.get_hotkey()
+        if res:
+            entry_widget.delete(0, "end")
+            entry_widget.insert(0, res)
 
     def _save_discord_settings(self):
         disc_cfg = self.config_mgr.settings.setdefault("discord", {})

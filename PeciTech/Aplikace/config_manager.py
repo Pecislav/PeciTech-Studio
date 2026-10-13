@@ -30,6 +30,7 @@ DEFAULT_SETTINGS = {
     "minimize_to_tray": True,
     "start_with_windows": False,
     "last_com_port": "AUTO",
+    "profiles_order": [],
     "obs": {
         "host": "localhost",
         "port": 4455,
@@ -63,11 +64,11 @@ class ConfigManager:
         return d
 
     def list_profiles(self):
-        """Vrátí seznam všech profilů v adresáři profiles/."""
+        """Vrátí seznam všech profilů v adresáři profiles/ se zachováním vlastního pořadí."""
         profs = []
         d = self.profiles_dir
         for f in os.listdir(d):
-            if f.endswith(".json"):
+            if f.endswith(".json") and not f.startswith("."):
                 pid = f[:-5]
                 p_path = os.path.join(d, f)
                 try:
@@ -79,7 +80,32 @@ class ConfigManager:
                 profs.append({"id": pid, "name": name, "file": f})
         if not profs:
             profs.append({"id": "default", "name": "Výchozí profil", "file": "default.json"})
+
+        # Respektovat uložené pořadí profilů
+        order = self.settings.get("profiles_order", []) if hasattr(self, "settings") and isinstance(self.settings, dict) else []
+        if order and isinstance(order, list):
+            order_map = {pid: i for i, pid in enumerate(order)}
+            profs.sort(key=lambda p: order_map.get(p["id"], 9999))
+
         return profs
+
+    def set_profiles_order(self, order_ids):
+        """Uloží vlastní pořadí profilů do nastavení."""
+        if not hasattr(self, "settings") or not isinstance(self.settings, dict):
+            self.settings = {}
+        self.settings["profiles_order"] = list(order_ids)
+        self.save_settings()
+
+    def reorder_profiles(self, old_idx, new_idx):
+        """Přesune profil z old_idx na new_idx a uloží nové pořadí."""
+        profs = self.list_profiles()
+        if 0 <= old_idx < len(profs) and 0 <= new_idx < len(profs) and old_idx != new_idx:
+            p = profs.pop(old_idx)
+            profs.insert(new_idx, p)
+            new_order = [x["id"] for x in profs]
+            self.set_profiles_order(new_order)
+            return True
+        return False
 
     def load_profile(self, profile_id=None, path=None):
         if not path:
@@ -190,6 +216,12 @@ class ConfigManager:
         except Exception as e:
             print(f"[Config] Chyba vytvoření profilu {slug}: {e}")
 
+        # Přidat do pořadí profilů
+        order = list(self.settings.get("profiles_order", [])) if hasattr(self, "settings") and isinstance(self.settings, dict) else []
+        if slug not in order:
+            order.append(slug)
+            self.set_profiles_order(order)
+
         self.switch_profile(slug)
         return slug
 
@@ -225,6 +257,11 @@ class ConfigManager:
             except Exception as e:
                 print(f"[Config] Chyba mazání profilu: {e}")
                 return False
+
+        order = list(self.settings.get("profiles_order", [])) if hasattr(self, "settings") and isinstance(self.settings, dict) else []
+        if profile_id in order:
+            order.remove(profile_id)
+            self.set_profiles_order(order)
 
         if self.active_profile_id == profile_id:
             rem = self.list_profiles()
@@ -371,6 +408,75 @@ class ConfigManager:
             self.save_profile()
             return new_idx
         return -1
+
+    def reorder_pages(self, old_idx, new_idx):
+        """Přesune stránku z old_idx na new_idx."""
+        pages = self.profile.get("pages", [])
+        if not (0 <= old_idx < len(pages) and 0 <= new_idx < len(pages)) or old_idx == new_idx:
+            return False
+
+        # Uložíme aktuální tlačítka do aktivní stránky před přesunem
+        act = self.profile.get("active_page", 0)
+        if 0 <= act < len(pages):
+            pages[act]["buttons"] = copy.deepcopy(self.profile.get("buttons", []))
+
+        # Přesuneme stránku v poli
+        pg = pages.pop(old_idx)
+        pages.insert(new_idx, pg)
+
+        # 1. Přeindexujeme ID zbývajících stránek
+        for i, p in enumerate(pages):
+            p["id"] = i
+            if "parent_page" in p and p.get("parent_page") is not None:
+                pp = p.get("parent_page")
+                if pp == old_idx:
+                    p["parent_page"] = new_idx
+                elif old_idx < new_idx and old_idx < pp <= new_idx:
+                    p["parent_page"] = pp - 1
+                elif old_idx > new_idx and new_idx <= pp < old_idx:
+                    p["parent_page"] = pp + 1
+
+        # 2. Pomocná funkce pro přeindexování odkazů goto:X a folder:X v tlačítkách
+        def _shift_btn_action(btn):
+            if not isinstance(btn, dict):
+                return
+            atype = btn.get("action_type", "")
+            aparam = str(btn.get("action_param", ""))
+            if atype == "page":
+                for prefix in ("goto:", "folder:"):
+                    if aparam.startswith(prefix):
+                        try:
+                            target = int(aparam[len(prefix):])
+                            if target == old_idx:
+                                btn["action_param"] = f"{prefix}{new_idx}"
+                            elif old_idx < new_idx and old_idx < target <= new_idx:
+                                btn["action_param"] = f"{prefix}{target - 1}"
+                            elif old_idx > new_idx and new_idx <= target < old_idx:
+                                btn["action_param"] = f"{prefix}{target + 1}"
+                        except Exception:
+                            pass
+            elif atype == "multi":
+                for sub in btn.get("actions", []):
+                    _shift_btn_action(sub)
+
+        for p in pages:
+            for btn in p.get("buttons", []):
+                _shift_btn_action(btn)
+
+        # 3. Spočítáme nový index aktivní stránky
+        if act == old_idx:
+            new_act = new_idx
+        elif old_idx < new_idx and old_idx < act <= new_idx:
+            new_act = act - 1
+        elif old_idx > new_idx and new_idx <= act < old_idx:
+            new_act = act + 1
+        else:
+            new_act = act
+
+        self.profile["active_page"] = new_act
+        self.profile["buttons"] = copy.deepcopy(pages[new_act].get("buttons", []))
+        self.save_profile()
+        return True
 
     def create_folder(self, folder_name="Složka", parent_page_idx=0):
         """Vytvoří podstránku (složku) s tlačítkem 'Zpět' na prvním slotu."""

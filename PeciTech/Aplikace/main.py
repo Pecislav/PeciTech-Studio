@@ -2,6 +2,12 @@ import os
 import sys
 import socket
 import threading
+
+# Optimalizace GIL switch intervalu: z výchozích 5ms na 20ms.
+# Zajišťuje, že hlavní GUI vlákno Tkinteru dostane dostatečně dlouhý nepřerušovaný
+# čas pro zpracování událostí myši (včetně 1000Hz gaming myší) a nedochází k trhání kurzoru.
+sys.setswitchinterval(0.02)
+
 from PIL import Image
 import customtkinter as ctk
 import pystray
@@ -18,36 +24,72 @@ from ui.deck_view import DeckView
 from ui.settings_view import SettingsModal
 
 LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "Logo", "PeciTech_logo_aplikace.png")
+import ctypes
+kernel32 = ctypes.windll.kernel32
+user32 = ctypes.windll.user32
+ERROR_ALREADY_EXISTS = 183
 SINGLE_INSTANCE_PORT = 49258
+
+try:
+    # Nastavíme standardní US layout (00000409) pro celý proces aplikace,
+    # aby klávesové zkratky a nízkoúrovňové odposlechy fungovaly 100% spolehlivě
+    # a nezávisle na zvoleném jazyce (např. čeština vs angličtina) v OS.
+    hkl_us = user32.LoadKeyboardLayoutW("00000409", 1)
+    if hkl_us:
+        user32.ActivateKeyboardLayout(hkl_us, 0x00000100) # KLF_SETFORPROCESS
+except Exception:
+    pass
 
 def ensure_single_instance(port=SINGLE_INSTANCE_PORT):
     """
-    Zajišťuje běh pouze jediné instance aplikace.
-    Pokud již aplikace běží, pošle jí signál RESTORE pro obnovení zobrazení okna.
-    Pokud port neodpovídá nebo visí, umožní novému oknu normálně nastartovat.
+    Zajišťuje běh pouze jediné instance aplikace pomocí systémového Win32 Mutexu a TCP soketu.
+    Pokud již aplikace běží:
+    1. Pošle běžící instanci signál RESTORE pro okamžité obnovení z oznamovací lišty do popředí.
+    2. Pomocí Win32 API přenese existující okno přímo do popředí.
+    3. Druhý proces čistě ukončí (žádné duplicitní ikony v liště ani konflikty s COM portem).
     """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("127.0.0.1", port))
-        sock.listen(5)
-        return sock
-    except socket.error:
+    # 1. Globální Win32 Mutex - 100% spolehlivý na Windows (nezávislý na síti)
+    mutex = kernel32.CreateMutexW(None, False, "Local\\PeciDeckStudio_SingleInstance_Mutex")
+    last_err = kernel32.GetLastError()
+
+    if last_err == ERROR_ALREADY_EXISTS:
+        # Aplikace již běží! Pošleme signál RESTORE
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.settimeout(1.2)
             client.connect(("127.0.0.1", port))
             client.sendall(b"RESTORE\n")
             client.close()
-            sys.exit(0)
         except Exception:
-            # Port je v TIME_WAIT nebo starý proces neodpovídá – nenecháme aplikaci zamrznout
-            return None
+            # Fallback - přeneseme okno do popředí přímo přes Win32
+            try:
+                hwnd = user32.FindWindowW(None, "PeciTech Studio – Peci Deck MK.1")
+                if hwnd:
+                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    user32.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
+        sys.exit(0)
+
+    # 2. Jsme první instance: otevřeme TCP soket pro příjem RESTORE příkazů (BEZ SO_REUSEADDR!)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", port))
+        sock.listen(5)
+    except Exception as e:
+        print(f"[SingleInstance] Soket bind info: {e}")
+        sock = None
+
+    return (sock, mutex)
 
 class PeciDeckApp(ctk.CTk):
-    def __init__(self, instance_socket=None):
+    def __init__(self, instance_socket=None, instance_mutex=None, instance_info=None):
         super().__init__()
-        self.instance_socket = instance_socket
+        if instance_info:
+            self.instance_socket, self.instance_mutex = instance_info
+        else:
+            self.instance_socket = instance_socket
+            self.instance_mutex = instance_mutex
         if self.instance_socket:
             threading.Thread(target=self._listen_single_instance, daemon=True).start()
 
@@ -199,6 +241,8 @@ class PeciDeckApp(ctk.CTk):
             if 0 <= index < len(buttons):
                 bdata = buttons[index]
                 self.action_handler.execute(bdata)
+                if hasattr(self, "deck_view"):
+                    self.deck_view.toggle_button_runtime_state(index)
 
         elif event_type == "encoder_rotate":
             encoders = self.config_mgr.profile.get("encoders", [])
@@ -346,6 +390,12 @@ class PeciDeckApp(ctk.CTk):
             except Exception:
                 pass
             try:
+                if getattr(self, "instance_mutex", None):
+                    kernel32.CloseHandle(self.instance_mutex)
+                    self.instance_mutex = None
+            except Exception:
+                pass
+            try:
                 if getattr(self, "tray_icon", None):
                     self.tray_icon.stop()
             except Exception:
@@ -367,6 +417,6 @@ class PeciDeckApp(ctk.CTk):
         self.after(0, _cleanup)
 
 if __name__ == "__main__":
-    lock_sock = ensure_single_instance()
-    app = PeciDeckApp(instance_socket=lock_sock)
+    lock_sock, lock_mutex = ensure_single_instance()
+    app = PeciDeckApp(instance_socket=lock_sock, instance_mutex=lock_mutex)
     app.mainloop()

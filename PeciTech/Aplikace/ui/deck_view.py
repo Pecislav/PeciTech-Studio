@@ -7,6 +7,7 @@ from tkinter import filedialog
 from PIL import Image, ImageTk
 from assets_manager import get_asset_icon, load_custom_image
 from ui.app_picker_dialog import AppPickerDialog
+from ui.hotkey_dialog import HotkeyRecorderDialog, normalize_hotkey
 
 # =============================================================================
 #  PŘEHLEDNÉ KATEGORIE IKON PRO VÝBĚR
@@ -112,8 +113,8 @@ class ModernContextMenu:
 
         for item in self._items:
             if item["type"] == "separator":
-                sep = ctk.CTkFrame(container, height=1, fg_color="#222534")
-                sep.pack(fill="x", padx=6, pady=3)
+                sep = tk.Frame(container, height=1, bg="#33374D", bd=0, highlightthickness=0)
+                sep.pack(fill="x", padx=10, pady=5)
                 continue
 
             state = item.get("state", "normal")
@@ -243,23 +244,470 @@ class ModernContextMenu:
 
 
 # =============================================================================
+#  MODERNÍ ROZBALOVACÍ NABÍDKA PROFILŮ (DRAG & DROP PŘEŘAZOVÁNÍ + ODDĚLOVAČ)
+# =============================================================================
+class ProfileDropdownMenu:
+    """
+    Moderní rozbalovací nabídka profilů s možností změny pořadí podržením levého tlačítka myši (drag & drop)
+    a elegantním vizuálním oddělovačem před volbou '+ Nový profil...'.
+    """
+    def __init__(self, parent, config_mgr, on_select_cb, on_add_new_cb, on_order_changed_cb=None):
+        self.parent = parent
+        self.config_mgr = config_mgr
+        self.on_select_cb = on_select_cb
+        self.on_add_new_cb = on_add_new_cb
+        self.on_order_changed_cb = on_order_changed_cb
+
+        self.top = None
+        self.profs = []
+        self.row_items = []
+
+        # Stav přetahování (Drag & Drop)
+        self._drag_start_idx = None
+        self._current_drag_idx = None
+        self._drag_start_x = 0
+        self._drag_start_y = 0
+        self._is_dragging = False
+        self._ghost = None
+        self._global_bind_id = None
+
+    def show(self, x, y):
+        # Zavřít případné otevřené kontextové menu
+        active_ctx = getattr(self.parent, "_active_context_menu", None)
+        if active_ctx:
+            try:
+                active_ctx.close()
+            except Exception:
+                pass
+        active_prof = getattr(self.parent, "_active_profile_dropdown", None)
+        if active_prof and active_prof != self:
+            try:
+                active_prof.close()
+            except Exception:
+                pass
+        self.parent._active_profile_dropdown = self
+
+        top_win = self.parent.winfo_toplevel()
+        self.top = tk.Toplevel(top_win)
+        self.top.overrideredirect(True)
+        self.top.attributes("-topmost", True)
+        self.top.configure(bg="#2D3142")
+
+        container = ctk.CTkFrame(
+            self.top,
+            fg_color="#14151F",
+            corner_radius=0,
+            border_width=0
+        )
+        container.pack(fill="both", expand=True, padx=1, pady=1)
+
+        self.list_frame = ctk.CTkFrame(container, fg_color="transparent")
+        self.list_frame.pack(fill="x", padx=4, pady=(4, 2))
+
+        # 1. Načteme profily
+        self.profs = self.config_mgr.list_profiles() if self.config_mgr else []
+        self._build_profile_rows()
+
+        # 2. Stylová oddělovací čárka (přesně dle požadavku: "odděleno nový profil nějakou čárkou co by se tam hodila")
+        self.sep = tk.Frame(container, height=1, bg="#33374D", bd=0, highlightthickness=0)
+        self.sep.pack(fill="x", padx=10, pady=(5, 6))
+
+        # 3. Řádek '+ Nový profil...'
+        self.row_new = ctk.CTkFrame(container, fg_color="transparent", corner_radius=6, height=30)
+        self.row_new.pack(fill="x", padx=4, pady=(0, 4))
+        self.row_new.pack_propagate(False)
+
+        lbl_new_ico = ctk.CTkLabel(
+            self.row_new,
+            text="+",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#FF7A29",
+            width=24
+        )
+        lbl_new_ico.pack(side="left", padx=(8, 2))
+
+        lbl_new_text = ctk.CTkLabel(
+            self.row_new,
+            text="Nový profil...",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#E2E8F0",
+            anchor="w"
+        )
+        lbl_new_text.pack(side="left", padx=(4, 14), fill="x", expand=True)
+
+        def _enter_new(e):
+            self.row_new.configure(fg_color="#222536")
+        def _leave_new(e):
+            self.row_new.configure(fg_color="transparent")
+        def _click_new(e):
+            self.close()
+            if self.on_add_new_cb:
+                self.on_add_new_cb()
+
+        for w in (self.row_new, lbl_new_ico, lbl_new_text):
+            w.bind("<Enter>", _enter_new)
+            w.bind("<Leave>", _leave_new)
+            w.bind("<Button-1>", _click_new)
+
+        self.top.update_idletasks()
+        w = max(230, self.top.winfo_width())
+        h = self.top.winfo_height()
+        sw = self.top.winfo_screenwidth()
+        sh = self.top.winfo_screenheight()
+        nx = max(10, min(x, sw - w - 10))
+        ny = max(10, min(y, sh - h - 10))
+        self.top.geometry(f"{w}x{h}+{nx}+{ny}")
+
+        try:
+            import ctypes
+            child_hwnd = self.top.winfo_id()
+            parent_hwnd = ctypes.windll.user32.GetParent(child_hwnd)
+            if parent_hwnd:
+                val = ctypes.c_int(3)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(parent_hwnd, 33, ctypes.byref(val), ctypes.sizeof(val))
+        except Exception:
+            pass
+
+        self.top.bind("<Escape>", lambda e: self.close())
+
+        def _on_global_click(e):
+            if self.top:
+                try:
+                    tx = self.top.winfo_rootx()
+                    ty = self.top.winfo_rooty()
+                    tw = self.top.winfo_width()
+                    th = self.top.winfo_height()
+                    if not (tx <= e.x_root <= tx + tw and ty <= e.y_root <= ty + th):
+                        self.close()
+                except Exception:
+                    self.close()
+
+        self._global_bind_id = top_win.bind("<Button-1>", _on_global_click, add="+")
+
+    def _build_profile_rows(self):
+        curr_id = getattr(self.config_mgr, "active_profile_id", "default")
+        self.row_items = []
+        for child in self.list_frame.winfo_children():
+            child.destroy()
+
+        for idx, p in enumerate(self.profs):
+            pid = p["id"]
+            pname = p["name"]
+            is_active = (pid == curr_id)
+
+            row = ctk.CTkFrame(self.list_frame, fg_color="transparent", corner_radius=6, height=30)
+            row.pack(fill="x", padx=0, pady=1)
+            row.pack_propagate(False)
+
+            lbl_check = ctk.CTkLabel(
+                row,
+                text="✓" if is_active else "",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#FF7A29" if is_active else "#64748B",
+                width=24
+            )
+            lbl_check.pack(side="left", padx=(8, 2))
+
+            lbl_title = ctk.CTkLabel(
+                row,
+                text=pname,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color="#FFFFFF" if is_active else "#E2E8F0",
+                anchor="w"
+            )
+            lbl_title.pack(side="left", padx=(4, 10), fill="x", expand=True)
+
+            lbl_grip = ctk.CTkLabel(
+                row,
+                text="⋮⋮",
+                font=ctk.CTkFont(size=12),
+                text_color="#4E5572",
+                width=18
+            )
+            lbl_grip.pack(side="right", padx=(2, 6))
+
+            btn_del = None
+            if len(self.profs) > 1:
+                btn_del = ctk.CTkButton(
+                    row,
+                    text="🗑",
+                    width=22,
+                    height=22,
+                    corner_radius=4,
+                    fg_color="transparent",
+                    hover_color="#3B181E",
+                    text_color="#64748B",
+                    font=ctk.CTkFont(size=12),
+                    command=lambda tid=pid, tname=pname: self._delete_profile_direct(tid, tname)
+                )
+                btn_del.pack(side="right", padx=(2, 2))
+
+            item_data = {
+                "idx": idx,
+                "profile": p,
+                "row": row,
+                "lbl_check": lbl_check,
+                "lbl_title": lbl_title,
+                "lbl_grip": lbl_grip,
+                "btn_del": btn_del,
+                "is_active": is_active
+            }
+            self.row_items.append(item_data)
+            self._bind_row_events(item_data, idx)
+
+    def _bind_row_events(self, item_data, idx):
+        row = item_data["row"]
+        lbl_check = item_data["lbl_check"]
+        lbl_title = item_data["lbl_title"]
+        lbl_grip = item_data["lbl_grip"]
+        widgets = (row, lbl_check, lbl_title, lbl_grip)
+
+        def _enter(e):
+            if not self._is_dragging:
+                row.configure(fg_color="#222536")
+                lbl_grip.configure(text_color="#8E95AE")
+
+        def _leave(e):
+            if not self._is_dragging or self._current_drag_idx != idx:
+                row.configure(fg_color="transparent")
+                lbl_grip.configure(text_color="#4E5572")
+
+        def _press(e):
+            self._drag_start_idx = idx
+            self._current_drag_idx = idx
+            self._drag_start_x = e.x_root
+            self._drag_start_y = e.y_root
+            self._is_dragging = False
+
+        def _motion(e):
+            if self._drag_start_idx is None:
+                return
+            dx = abs(e.x_root - self._drag_start_x)
+            dy = abs(e.y_root - self._drag_start_y)
+            if not self._is_dragging and (dx > 4 or dy > 4):
+                self._is_dragging = True
+                dragged_p = self.profs[self._drag_start_idx]
+                self._create_ghost(dragged_p, e.x_root, e.y_root)
+
+            if self._is_dragging:
+                self._update_ghost(e.x_root, e.y_root)
+                target_idx = self._get_target_idx_at_y(e.y_root)
+                if target_idx is not None and target_idx != self._current_drag_idx:
+                    item = self.profs.pop(self._current_drag_idx)
+                    self.profs.insert(target_idx, item)
+                    self._current_drag_idx = target_idx
+                    self._update_rows_live()
+
+        def _release(e):
+            was_drag = self._is_dragging
+            self._cleanup_ghost()
+            self._is_dragging = False
+            self._drag_start_idx = None
+            self._current_drag_idx = None
+
+            if was_drag:
+                new_order = [p["id"] for p in self.profs]
+                self.config_mgr.set_profiles_order(new_order)
+                if self.on_order_changed_cb:
+                    self.on_order_changed_cb()
+                self._update_rows_live()
+            else:
+                self.close()
+                target_p = self.profs[idx]
+                if self.on_select_cb:
+                    self.on_select_cb(target_p["id"])
+
+        def _right_click(e):
+            if not self._is_dragging:
+                self._show_profile_context_menu(e, self.profs[idx])
+
+        for w in widgets:
+            w.bind("<Enter>", _enter)
+            w.bind("<Leave>", _leave)
+            w.bind("<ButtonPress-1>", _press)
+            w.bind("<B1-Motion>", _motion)
+            w.bind("<ButtonRelease-1>", _release)
+            w.bind("<Button-3>", _right_click)
+
+    def _get_target_idx_at_y(self, y_root):
+        if not self.row_items:
+            return None
+        for i, item_data in enumerate(self.row_items):
+            r = item_data["row"]
+            ry = r.winfo_rooty()
+            rh = r.winfo_height()
+            if ry <= y_root <= ry + rh:
+                return i
+        first_y = self.row_items[0]["row"].winfo_rooty()
+        if y_root < first_y:
+            return 0
+        last_r = self.row_items[-1]["row"]
+        last_y = last_r.winfo_rooty() + last_r.winfo_height()
+        if y_root > last_y:
+            return len(self.row_items) - 1
+        return None
+
+    def _update_rows_live(self):
+        curr_id = getattr(self.config_mgr, "active_profile_id", "default")
+        for i, item_data in enumerate(self.row_items):
+            if i >= len(self.profs):
+                break
+            p = self.profs[i]
+            is_active = (p["id"] == curr_id)
+            is_dragged = (self._is_dragging and i == self._current_drag_idx)
+
+            item_data["profile"] = p
+            item_data["lbl_title"].configure(
+                text=p["name"],
+                text_color="#FF7A29" if is_dragged else ("#FFFFFF" if is_active else "#E2E8F0")
+            )
+            item_data["lbl_check"].configure(
+                text="✓" if is_active else "",
+                text_color="#FF7A29" if is_active else "#64748B"
+            )
+            if is_dragged:
+                item_data["row"].configure(fg_color="#25293E")
+                item_data["lbl_grip"].configure(text_color="#FF7A29")
+            else:
+                item_data["row"].configure(fg_color="transparent")
+                item_data["lbl_grip"].configure(text_color="#4E5572")
+            if item_data.get("btn_del"):
+                item_data["btn_del"].configure(command=lambda tid=p["id"], tname=p["name"]: self._delete_profile_direct(tid, tname))
+
+    def _create_ghost(self, item, x, y):
+        self._cleanup_ghost()
+        try:
+            self._ghost = tk.Toplevel(self.top)
+            self._ghost.overrideredirect(True)
+            self._ghost.attributes("-topmost", True)
+            self._ghost.configure(bg="#FF7A29")
+
+            inner = ctk.CTkFrame(self._ghost, fg_color="#181A26", corner_radius=6, border_width=0)
+            inner.pack(padx=1, pady=1)
+
+            lbl = ctk.CTkLabel(
+                inner,
+                text=f"  ≡  {item['name']}  ",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color="#FFFFFF"
+            )
+            lbl.pack(padx=8, pady=4)
+            self._ghost.update_idletasks()
+            self._ghost.geometry(f"+{x + 15}+{y - 12}")
+        except Exception:
+            self._ghost = None
+
+    def _update_ghost(self, x, y):
+        if not self._ghost:
+            return
+        now = time.time()
+        if now - getattr(self, "_last_ghost_update", 0) >= 0.016:
+            self._last_ghost_update = now
+            try:
+                self._ghost.geometry(f"+{x + 15}+{y - 12}")
+            except Exception:
+                pass
+
+    def _cleanup_ghost(self):
+        if self._ghost:
+            try:
+                self._ghost.destroy()
+            except Exception:
+                pass
+            self._ghost = None
+
+    def _delete_profile_direct(self, target_id, target_name):
+        from tkinter import messagebox
+        if messagebox.askyesno("Smazat profil", f"Opravdu chcete smazat profil '{target_name}'?"):
+            self.config_mgr.delete_profile(target_id)
+            self.profs = self.config_mgr.list_profiles() if self.config_mgr else []
+            self._build_profile_rows()
+            if hasattr(self.parent, "_render_profile_bar"):
+                self.parent._render_profile_bar()
+            if hasattr(self.parent, "_render_pages_pill"):
+                self.parent._render_pages_pill()
+            if hasattr(self.parent, "_refresh_all_buttons_ui"):
+                self.parent._refresh_all_buttons_ui()
+            if hasattr(self.parent, "_refresh_all_encoders_ui"):
+                self.parent._refresh_all_encoders_ui()
+            if hasattr(self.parent, "select_button"):
+                self.parent.select_button(0)
+            if hasattr(self.parent, "serial") and self.parent.serial and self.parent.serial.is_connected:
+                self.parent.serial.sync_profile(self.config_mgr.profile)
+
+    def _show_profile_context_menu(self, e, p):
+        pid = p["id"]
+        pname = p["name"]
+        menu = ModernContextMenu(self.parent)
+        menu.add_command(f"Přejmenovat '{pname}'...", lambda: self._rename_and_refresh(pid), icon_asset="edit")
+        menu.add_command(f"Duplikovat '{pname}'", lambda: self._duplicate_and_refresh(pid), icon_asset="copy")
+        if len(self.profs) > 1:
+            menu.add_separator()
+            menu.add_command(f"Smazat '{pname}'", lambda: self._delete_profile_direct(pid, pname), icon_asset="trash", is_danger=True)
+        self.close()
+        menu.show(e.x_root, e.y_root)
+
+    def _rename_and_refresh(self, pid):
+        if hasattr(self.parent, "_rename_profile_dialog"):
+            self.parent._rename_profile_dialog(pid)
+
+    def _duplicate_and_refresh(self, pid):
+        if hasattr(self.parent, "_duplicate_profile_quick"):
+            self.parent._duplicate_profile_quick(pid)
+
+    def close(self):
+        self._cleanup_ghost()
+        if self.top:
+            try:
+                if self._global_bind_id:
+                    self.parent.winfo_toplevel().unbind("<Button-1>", self._global_bind_id)
+            except Exception:
+                pass
+            try:
+                self.top.destroy()
+            except Exception:
+                pass
+            self.top = None
+        if getattr(self.parent, "_active_profile_dropdown", None) == self:
+            self.parent._active_profile_dropdown = None
+
+
+# =============================================================================
 #  VYSKAKOVACÍ OKNO PRO VÝBĚR IKONY (S KATEGORIEMI A VYHLEDÁVÁNÍM)
 # =============================================================================
 class IconPickerModal(ctk.CTkToplevel):
-    def __init__(self, parent, current_icon, current_custom_path, on_select_cb):
+    def __init__(self, parent, current_icon="none", current_custom_path="", on_select_cb=None, bdata=None, on_save_cb=None):
         super().__init__(parent)
         self.title("Výběr ikony pro klávesu")
-        self.geometry("540x560")
-        self.minsize(500, 500)
+        self.geometry("540x590")
+        self.minsize(500, 520)
         self.resizable(True, True)
         self.configure(fg_color="#111218")
         self.transient(parent)
         self.grab_set()
 
-        self.current_icon = current_icon
-        self.current_custom_path = current_custom_path
-        self.on_select_cb = on_select_cb
+        self.bdata = bdata
+        if bdata is not None:
+            self.state1_icon = bdata.get("icon", "none") or "none"
+            self.state1_custom = bdata.get("custom_icon", "")
+            self.state1_label = bdata.get("label", "")
+            self.state2_icon = bdata.get("icon2", "")
+            self.state2_custom = bdata.get("custom_icon2", "")
+            self.state2_label = bdata.get("label2", "")
+            self.has_state2 = bool(self.state2_icon or self.state2_custom or self.state2_label)
+        else:
+            self.state1_icon = current_icon or "none"
+            self.state1_custom = current_custom_path or ""
+            self.state1_label = ""
+            self.state2_icon = ""
+            self.state2_custom = ""
+            self.state2_label = ""
+            self.has_state2 = False
 
+        self.on_select_cb = on_select_cb
+        self.on_save_cb = on_save_cb
+
+        self.active_tab = 1
         self.selected_category_filter = "Vše"
         self.search_query = ""
         self.category_widgets = []
@@ -267,7 +715,7 @@ class IconPickerModal(ctk.CTkToplevel):
         self._build_ui()
 
     def _build_ui(self):
-        # 1. Horní lišta
+        # 1. HORNÍ LIŠTA
         top_frame = ctk.CTkFrame(self, fg_color="transparent")
         top_frame.pack(fill="x", padx=22, pady=(16, 6))
 
@@ -277,35 +725,112 @@ class IconPickerModal(ctk.CTkToplevel):
             font=ctk.CTkFont(size=18, weight="bold"),
             text_color="#FFFFFF"
         )
-        lbl_head.pack(anchor="w")
+        lbl_head.pack(side="left")
 
-        # 2. Tlačítko pro vlastní obrázek z PC
-        folder_ico = get_asset_icon("folder", size=(18, 18))
-        btn_custom = ctk.CTkButton(
-            self,
+        btn_close = ctk.CTkButton(
+            top_frame,
+            text="✕ Zavřít",
+            width=68,
+            height=28,
+            corner_radius=6,
+            fg_color="#1E202C",
+            hover_color="#2A2E40",
+            border_width=1,
+            border_color="#2E3348",
+            text_color="#CBD5E1",
+            font=ctk.CTkFont(size=11),
+            command=self.destroy
+        )
+        btn_close.pack(side="right")
+
+        # 2. PŘEPÍNAČ ZÁLOŽEK (1. Výchozí ikona / 2. Ikona při stisku)
+        tab_bar = ctk.CTkFrame(self, fg_color="#181A25", height=36, corner_radius=10)
+        tab_bar.pack(fill="x", padx=22, pady=(10, 8))
+
+        self.btn_tab1 = ctk.CTkButton(
+            tab_bar,
+            text="1. Výchozí ikona",
+            height=28,
+            corner_radius=8,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda: self._switch_tab(1)
+        )
+        self.btn_tab1.pack(side="left", fill="x", expand=True, padx=4, pady=4)
+
+        self.btn_tab2 = ctk.CTkButton(
+            tab_bar,
+            text="⚡ 2. Ikona při stisku",
+            height=28,
+            corner_radius=8,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda: self._switch_tab(2)
+        )
+        self.btn_tab2.pack(side="left", fill="x", expand=True, padx=4, pady=4)
+
+        # 3. KONTEXTOVÝ PANEL POD ZÁLOŽKAMI
+        self.f_tab_context = ctk.CTkFrame(self, fg_color="transparent")
+        self.f_tab_context.pack(fill="x", padx=22, pady=(0, 6))
+
+        # 4. TLAČÍTKA PRO VLASTNÍ OBRÁZEK A SLOŽKU ASSETS
+        f_top_btns = ctk.CTkFrame(self, fg_color="transparent")
+        f_top_btns.pack(fill="x", padx=22, pady=(2, 8))
+
+        folder_ico = get_asset_icon("folder", size=(16, 16))
+        self.btn_custom = ctk.CTkButton(
+            f_top_btns,
             image=folder_ico,
-            text="  Vybrat vlastní obrázek z PC (.png, .jpg, .ico)...",
-            height=38,
+            text="  Vybrat soubor z PC...",
+            height=34,
             corner_radius=8,
             fg_color="#1E202C",
             hover_color="#2A2E40",
             border_width=1,
             border_color="#2E3348",
             text_color="#FFFFFF",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            font=ctk.CTkFont(size=11, weight="bold"),
             command=self._pick_custom_file
         )
-        btn_custom.pack(fill="x", padx=22, pady=(4, 10))
+        self.btn_custom.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
-        # 3. Vyhledávací pole
+        btn_open_assets = ctk.CTkButton(
+            f_top_btns,
+            text="📂 Otevřít složku ikon",
+            height=34,
+            corner_radius=8,
+            fg_color="#1E202C",
+            hover_color="#2A2E40",
+            border_width=1,
+            border_color="#2E3348",
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._open_assets_folder
+        )
+        btn_open_assets.pack(side="left", padx=4)
+
+        btn_reload = ctk.CTkButton(
+            f_top_btns,
+            text="🔄",
+            width=34,
+            height=34,
+            corner_radius=8,
+            fg_color="#1E202C",
+            hover_color="#2A2E40",
+            border_width=1,
+            border_color="#2E3348",
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self._reload_icons
+        )
+        btn_reload.pack(side="left", padx=(4, 0))
+
+        # 5. VYHLEDÁVACÍ POLE
         search_box = ctk.CTkFrame(self, fg_color="transparent")
-        search_box.pack(fill="x", padx=22, pady=(0, 8))
+        search_box.pack(fill="x", padx=22, pady=(0, 6))
 
-        search_ico = get_asset_icon("search", size=(16, 16))
         self.search_entry = ctk.CTkEntry(
             search_box,
             placeholder_text="  Hledat ikonu (např. Play, OBS, Discord)...",
-            height=34,
+            height=32,
             corner_radius=8,
             fg_color="#0E0F15",
             border_color="#26293A",
@@ -316,34 +841,218 @@ class IconPickerModal(ctk.CTkToplevel):
         self.search_entry.pack(fill="x")
         self.search_entry.bind("<KeyRelease>", self._on_search_change)
 
-        # 4. Kategorie - filtrační tlačítka (Pill buttons)
-        cat_bar = ctk.CTkFrame(self, fg_color="transparent", height=32)
-        cat_bar.pack(fill="x", padx=22, pady=(0, 10))
+        # 6. KATEGORIE
+        cat_bar = ctk.CTkFrame(self, fg_color="transparent", height=28)
+        cat_bar.pack(fill="x", padx=22, pady=(0, 8))
 
-        cat_names = ["Vše", "Média", "Hry", "OBS", "Systém", "Web"]
+        cat_names = ["Vše", "Média", "Hry", "OBS", "Systém", "Web", "Vlastní"]
         self.filter_buttons = {}
         for cname in cat_names:
             is_active = (cname == "Vše")
             btn_f = ctk.CTkButton(
                 cat_bar,
                 text=cname,
-                width=65,
-                height=26,
-                corner_radius=13,
-                font=ctk.CTkFont(size=11, weight="bold"),
+                width=62,
+                height=24,
+                corner_radius=12,
+                font=ctk.CTkFont(size=10, weight="bold"),
                 fg_color="#FF7A29" if is_active else "#1A1C26",
                 text_color="#0A0A0E" if is_active else "#CBD5E1",
                 hover_color="#FF8E3D" if is_active else "#282A3A",
                 command=lambda cn=cname: self._set_category_filter(cn)
             )
-            btn_f.pack(side="left", padx=(0, 6))
+            btn_f.pack(side="left", padx=(0, 5))
             self.filter_buttons[cname] = btn_f
 
-        # 5. Hlavní rolovací plocha s rozdělenými kategoriemi
+        # 7. HLAVNÍ ROLOVACÍ PLOCHA (Mřížka ikon až dolů)
         self.scroll_area = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll_area.pack(fill="both", expand=True, padx=18, pady=(0, 14))
+        self.scroll_area.pack(fill="both", expand=True, padx=18, pady=(0, 12))
 
+        self._update_tab_buttons()
+        self._refresh_tab_context()
         self._render_icon_grid()
+
+    def _switch_tab(self, tab_num):
+        self.active_tab = tab_num
+        self._update_tab_buttons()
+        self._refresh_tab_context()
+        self._update_grid_selection_highlight()
+
+    def _update_tab_buttons(self):
+        t1_active = (self.active_tab == 1)
+        self.btn_tab1.configure(
+            fg_color="#FF7A29" if t1_active else "#181A25",
+            text_color="#0A0A0E" if t1_active else "#CBD5E1",
+            hover_color="#FF8E3D" if t1_active else "#282A3A"
+        )
+        t2_active = (self.active_tab == 2)
+        s2_tag = " (Aktivní)" if self.has_state2 else " (Vypnuto)"
+        self.btn_tab2.configure(
+            text=f"⚡ 2. Ikona při stisku{s2_tag}",
+            fg_color="#FF7A29" if t2_active else "#181A25",
+            text_color="#0A0A0E" if t2_active else ("#34D399" if self.has_state2 else "#8E95AE"),
+            hover_color="#FF8E3D" if t2_active else "#282A3A"
+        )
+
+    def _refresh_tab_context(self):
+        for w in self.f_tab_context.winfo_children():
+            w.destroy()
+
+        if self.active_tab == 1:
+            lbl_info = ctk.CTkLabel(
+                self.f_tab_context,
+                text="Klikněte na ikonu v mřížce níže pro nastavení výchozí ikony.",
+                font=ctk.CTkFont(size=11),
+                text_color="#8E95AE"
+            )
+            lbl_info.pack(anchor="w", padx=2, pady=2)
+        else:
+            card = ctk.CTkFrame(self.f_tab_context, fg_color="#181A25", corner_radius=8, border_width=1, border_color="#282A3A")
+            card.pack(fill="x", pady=2)
+
+            if not self.has_state2:
+                r_off = ctk.CTkFrame(card, fg_color="transparent")
+                r_off.pack(fill="x", padx=12, pady=8)
+
+                lbl_off = ctk.CTkLabel(
+                    r_off,
+                    text="Druhý stav ikony: Vypnuto",
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    text_color="#8E95AE"
+                )
+                lbl_off.pack(side="left")
+
+                btn_enable = ctk.CTkButton(
+                    r_off,
+                    text="+ Zapnout 2. stav",
+                    width=130,
+                    height=28,
+                    corner_radius=6,
+                    fg_color="#1E202C",
+                    hover_color="#2A2E40",
+                    border_width=1,
+                    border_color="#FF7A29",
+                    text_color="#FF9D54",
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    command=self._enable_state2
+                )
+                btn_enable.pack(side="right")
+            else:
+                r_on = ctk.CTkFrame(card, fg_color="transparent")
+                r_on.pack(fill="x", padx=12, pady=(8, 4))
+
+                lbl_on = ctk.CTkLabel(
+                    r_on,
+                    text="● 2. stav: Aktivní",
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    text_color="#10B981"
+                )
+                lbl_on.pack(side="left")
+
+                btn_disable = ctk.CTkButton(
+                    r_on,
+                    text="✕ Vypnout 2. stav",
+                    width=120,
+                    height=24,
+                    corner_radius=5,
+                    fg_color="#2A1B22",
+                    hover_color="#3E1C27",
+                    border_width=1,
+                    border_color="#4E232E",
+                    text_color="#F87171",
+                    font=ctk.CTkFont(size=10, weight="bold"),
+                    command=self._disable_state2
+                )
+                btn_disable.pack(side="right")
+
+                r_label = ctk.CTkFrame(card, fg_color="transparent")
+                r_label.pack(fill="x", padx=12, pady=(2, 6))
+
+                lbl_l2 = ctk.CTkLabel(
+                    r_label,
+                    text="Popisek při stisku:",
+                    font=ctk.CTkFont(size=11),
+                    text_color="#CBD5E1"
+                )
+                lbl_l2.pack(side="left", padx=(0, 6))
+
+                self.entry_state2_label = ctk.CTkEntry(
+                    r_label,
+                    height=26,
+                    corner_radius=5,
+                    fg_color="#0E0F15",
+                    border_color="#26293A",
+                    border_width=1,
+                    text_color="#FFFFFF",
+                    font=ctk.CTkFont(size=11),
+                    placeholder_text="Např. PAUZA, MUTE (volitelné)..."
+                )
+                self.entry_state2_label.pack(side="left", fill="x", expand=True, padx=(0, 6))
+                self.entry_state2_label.insert(0, self.state2_label)
+                self.entry_state2_label.bind("<KeyRelease>", self._on_state2_label_key)
+
+                btn_save_lbl = ctk.CTkButton(
+                    r_label,
+                    text="Uložit",
+                    width=50,
+                    height=26,
+                    corner_radius=5,
+                    fg_color="#1E202C",
+                    hover_color="#2A2E40",
+                    border_width=1,
+                    border_color="#282A3A",
+                    text_color="#CBD5E1",
+                    font=ctk.CTkFont(size=10, weight="bold"),
+                    command=self._save_state2_label
+                )
+                btn_save_lbl.pack(side="left")
+
+                lbl_hint = ctk.CTkLabel(
+                    card,
+                    text="Klikněte na ikonu níže pro nastavení ikony při stisku.",
+                    font=ctk.CTkFont(size=10),
+                    text_color="#FF9D54"
+                )
+                lbl_hint.pack(anchor="w", padx=12, pady=(0, 6))
+
+    def _enable_state2(self):
+        self.has_state2 = True
+        if not self.state2_icon and not self.state2_custom:
+            self.state2_icon = self.state1_icon
+        self._update_tab_buttons()
+        self._refresh_tab_context()
+        self._update_grid_selection_highlight()
+
+    def _disable_state2(self):
+        self.has_state2 = False
+        self.state2_icon = ""
+        self.state2_custom = ""
+        self.state2_label = ""
+        self._save_and_sync(close_modal=True)
+
+    def _on_state2_label_key(self, e=None):
+        if hasattr(self, "entry_state2_label"):
+            self.state2_label = self.entry_state2_label.get().strip()
+
+    def _save_state2_label(self):
+        if hasattr(self, "entry_state2_label"):
+            self.state2_label = self.entry_state2_label.get().strip()
+        self._save_and_sync(close_modal=True)
+
+    def _open_assets_folder(self):
+        from assets_manager import ASSETS_DIR
+        if os.path.exists(ASSETS_DIR):
+            try:
+                os.startfile(ASSETS_DIR)
+            except Exception:
+                import subprocess
+                subprocess.Popen(["explorer", ASSETS_DIR])
+
+    def _reload_icons(self):
+        from assets_manager import clear_icon_cache
+        clear_icon_cache()
+        self._render_icon_grid()
+        self._filter_items()
 
     def _set_category_filter(self, cname):
         self.selected_category_filter = cname
@@ -361,9 +1070,35 @@ class IconPickerModal(ctk.CTkToplevel):
         self._filter_items()
 
     def _render_icon_grid(self):
+        for child in self.scroll_area.winfo_children():
+            child.destroy()
         self.category_widgets.clear()
 
+        # Dynamicky načteme všechny ikony ze složky assets
+        from assets_manager import get_all_asset_icons
+        all_disk_icons = get_all_asset_icons()
+
+        # Zjistíme, které ikony už jsou v pevných kategoriích
+        standard_keys = set()
         for cat_title, cat_icon, items in ICON_CATEGORIES:
+            for k, _ in items:
+                standard_keys.add(k)
+
+        # Všechny ikony ze složky assets, které nejsou ve výchozích kategoriích, zařadíme do Vlastní ikony
+        custom_items = []
+        for stem, meta in sorted(all_disk_icons.items(), key=lambda x: x[0]):
+            if stem not in standard_keys:
+                custom_items.append((stem, meta["name"]))
+
+        categories_to_render = []
+        for cat in ICON_CATEGORIES:
+            if cat[0] == "Ostatní" and custom_items:
+                categories_to_render.append(("Vlastní ikony (Assets)", "folder", custom_items))
+            categories_to_render.append(cat)
+        if custom_items and not any(c[0] == "Vlastní ikony (Assets)" for c in categories_to_render):
+            categories_to_render.append(("Vlastní ikony (Assets)", "folder", custom_items))
+
+        for cat_title, cat_icon, items in categories_to_render:
             cat_frame = ctk.CTkFrame(self.scroll_area, fg_color="transparent")
             cat_frame.pack(fill="x", pady=(4, 12))
 
@@ -393,7 +1128,6 @@ class IconPickerModal(ctk.CTkToplevel):
                 r = idx // COLS
                 c = idx % COLS
 
-                is_active = (icon_key == self.current_icon and not self.current_custom_path)
                 ico_img = get_asset_icon(icon_key, size=(24, 24))
 
                 btn_tile = ctk.CTkButton(
@@ -401,40 +1135,63 @@ class IconPickerModal(ctk.CTkToplevel):
                     image=ico_img,
                     text=f"\n{label_cz}",
                     compound="top",
-                    width=105,
+                    width=108,
                     height=58,
                     corner_radius=8,
-                    fg_color="#302018" if is_active else "#1A1C26",
-                    border_width=2 if is_active else 1,
-                    border_color="#FF7A29" if is_active else "#282A3A",
+                    fg_color="#1A1C26",
+                    border_width=1,
+                    border_color="#282A3A",
                     hover_color="#282A3A",
-                    text_color="#FF9D54" if is_active else "#FFFFFF",
+                    text_color="#FFFFFF",
                     font=ctk.CTkFont(size=10, weight="bold"),
-                    command=lambda k=icon_key: self._select_preset(k)
+                    command=lambda k=icon_key: self._on_icon_tile_clicked(k)
                 )
                 btn_tile.grid(row=r, column=c, padx=5, pady=4)
                 item_btns.append((icon_key, label_cz, btn_tile))
 
             self.category_widgets.append((cat_title, cat_frame, item_btns))
 
+        self._update_grid_selection_highlight()
+
+    def _update_grid_selection_highlight(self):
+        if self.active_tab == 1:
+            active_key = self.state1_icon if not self.state1_custom else ""
+            border_c = "#FF7A29"
+            bg_c = "#302018"
+            txt_c = "#FF9D54"
+        else:
+            active_key = self.state2_icon if (self.has_state2 and not self.state2_custom) else ""
+            border_c = "#10B981"
+            bg_c = "#14241E"
+            txt_c = "#34D399"
+
+        for cat_title, cat_frame, items in self.category_widgets:
+            for icon_key, label_cz, btn_tile in items:
+                is_sel = (icon_key == active_key and active_key != "")
+                btn_tile.configure(
+                    fg_color=bg_c if is_sel else "#1A1C26",
+                    border_width=2 if is_sel else 1,
+                    border_color=border_c if is_sel else "#282A3A",
+                    text_color=txt_c if is_sel else "#FFFFFF"
+                )
+
     def _filter_items(self):
         query = self.search_query
         f_cat = self.selected_category_filter
 
         for cat_title, cat_frame, items in self.category_widgets:
-            # Kontrola kategorie
             match_cat = True
             if f_cat == "Média" and "Média" not in cat_title: match_cat = False
             elif f_cat == "Hry" and "Hry" not in cat_title: match_cat = False
             elif f_cat == "OBS" and "OBS" not in cat_title: match_cat = False
             elif f_cat == "Systém" and "Systém" not in cat_title: match_cat = False
             elif f_cat == "Web" and "Web" not in cat_title: match_cat = False
+            elif f_cat == "Vlastní" and "Vlastní" not in cat_title: match_cat = False
 
             if not match_cat:
                 cat_frame.pack_forget()
                 continue
 
-            # Kontrola vyhledávacího dotazu
             visible_count = 0
             for icon_key, label_cz, btn in items:
                 if not query or query in label_cz.lower() or query in icon_key.lower():
@@ -448,9 +1205,17 @@ class IconPickerModal(ctk.CTkToplevel):
             else:
                 cat_frame.pack_forget()
 
-    def _select_preset(self, icon_key):
-        self.on_select_cb(icon_key=icon_key, custom_path="")
-        self.destroy()
+    def _on_icon_tile_clicked(self, icon_key):
+        if self.active_tab == 1:
+            self.state1_icon = icon_key
+            self.state1_custom = ""
+        else:
+            self.has_state2 = True
+            self.state2_icon = icon_key
+            self.state2_custom = ""
+            if hasattr(self, "entry_state2_label"):
+                self.state2_label = self.entry_state2_label.get().strip()
+        self._save_and_sync(close_modal=True)
 
     def _pick_custom_file(self):
         file_path = filedialog.askopenfilename(
@@ -459,7 +1224,34 @@ class IconPickerModal(ctk.CTkToplevel):
             filetypes=[("Obrázky", "*.png;*.jpg;*.jpeg;*.ico;*.bmp"), ("Všechny soubory", "*.*")]
         )
         if file_path:
-            self.on_select_cb(icon_key="custom", custom_path=file_path)
+            if self.active_tab == 1:
+                self.state1_icon = "custom"
+                self.state1_custom = file_path
+            else:
+                self.has_state2 = True
+                self.state2_icon = "custom"
+                self.state2_custom = file_path
+                if hasattr(self, "entry_state2_label"):
+                    self.state2_label = self.entry_state2_label.get().strip()
+
+            self._save_and_sync(close_modal=True)
+
+    def _save_and_sync(self, close_modal=False):
+        res = {
+            "icon": self.state1_icon,
+            "custom_icon": self.state1_custom,
+            "has_state2": self.has_state2,
+            "icon2": self.state2_icon if self.has_state2 else "",
+            "custom_icon2": self.state2_custom if self.has_state2 else "",
+            "label2": self.state2_label if self.has_state2 else ""
+        }
+
+        if self.on_save_cb:
+            self.on_save_cb(res)
+        elif self.on_select_cb:
+            self.on_select_cb(icon_key=self.state1_icon, custom_path=self.state1_custom)
+
+        if close_modal:
             self.destroy()
 
 
@@ -941,6 +1733,8 @@ class AddMultiStepDialog(ctk.CTkToplevel):
                 ("⏸ Pozastavit / Obnovit záznam", "obs", "toggle_record_pause"),
                 ("🎬 Přepnout scénu v OBS...", "obs_scene", ""),
                 ("🔇 Ztlumit audio stopu v OBS (Mute)...", "obs_mute", ""),
+                ("🔊 Zvýšit hlasitost stopy v OBS (+2 dB)...", "obs_vol_up", ""),
+                ("🔉 Snížit hlasitost stopy v OBS (-2 dB)...", "obs_vol_down", ""),
                 ("📷 Virtuální webkamera OBS", "obs", "toggle_virtual_cam"),
                 ("💾 Uložit Replay buffer OBS", "obs", "save_replay_buffer"),
             ]),
@@ -959,8 +1753,7 @@ class AddMultiStepDialog(ctk.CTkToplevel):
                 ("💬 Odeslat zprávu do chatu...", "twitch_chat", ""),
             ]),
             ("🎵 ZVUK & MÉDIA", [
-                ("🔊 Hlasitost: Zvýšit (+)", "volume", "up"),
-                ("🔉 Hlasitost: Snížit (-)", "volume", "down"),
+                ("🔊 Ovládání hlasitosti (+ / -)", "volume", "up"),
                 ("🔇 Hlasitost: Ztlumit (Mute)", "volume", "mute"),
                 ("🎵 Přehrát / Pozastavit média", "media", "play_pause"),
                 ("⏭ Další skladba", "media", "next"),
@@ -1074,9 +1867,10 @@ class AddMultiStepDialog(ctk.CTkToplevel):
             if not u: return
             self.result = {"action_type": "url", "action_param": u.strip(), "label": u.strip()[:14]}
         elif atype == "hotkey":
-            dlg = ctk.CTkInputDialog(text="Zadejte klávesovou zkratku (např. ctrl+shift+m):", title="Klávesová zkratka")
-            hk = dlg.get_input()
+            dlg = HotkeyRecorderDialog(self, title="Záznam klávesové zkratky")
+            hk = dlg.get_hotkey()
             if not hk: return
+            hk = normalize_hotkey(hk)
             self.result = {"action_type": "hotkey", "action_param": hk.strip().lower(), "label": hk.strip().upper()}
         elif atype == "delay":
             dlg = ctk.CTkInputDialog(text="Zadejte dobu čekání v ms (např. 500 = 0.5s):", title="Pauza")
@@ -1145,6 +1939,30 @@ class AddMultiStepDialog(ctk.CTkToplevel):
                 au = dlg.get_input()
                 if not au: return
                 self.result = {"action_type": "obs", "action_param": f"mute:{au.strip()}", "label": f"Mute: {au.strip()[:10]}"}
+        elif atype == "obs_vol_up":
+            audios = self.obs.get_audio_inputs() if self.obs else []
+            if audios:
+                dlg = OBSItemPickerDialog(self, "Zvýšit hlasitost OBS", "Vyberte audio stopu pro zvýšení hlasitosti (+2 dB):", audios)
+                ch = dlg.get_result()
+                if not ch: return
+                self.result = {"action_type": "obs", "action_param": f"vol_up:{ch}", "label": f"{ch[:8]} +2dB"}
+            else:
+                dlg = ctk.CTkInputDialog(text="Zadejte název audio stopy v OBS:", title="Hlasitost OBS (+2 dB)")
+                au = dlg.get_input()
+                if not au: return
+                self.result = {"action_type": "obs", "action_param": f"vol_up:{au.strip()}", "label": f"{au.strip()[:8]} +2dB"}
+        elif atype == "obs_vol_down":
+            audios = self.obs.get_audio_inputs() if self.obs else []
+            if audios:
+                dlg = OBSItemPickerDialog(self, "Snížit hlasitost OBS", "Vyberte audio stopu pro snížení hlasitosti (-2 dB):", audios)
+                ch = dlg.get_result()
+                if not ch: return
+                self.result = {"action_type": "obs", "action_param": f"vol_down:{ch}", "label": f"{ch[:8]} -2dB"}
+            else:
+                dlg = ctk.CTkInputDialog(text="Zadejte název audio stopy v OBS:", title="Hlasitost OBS (-2 dB)")
+                au = dlg.get_input()
+                if not au: return
+                self.result = {"action_type": "obs", "action_param": f"vol_down:{au.strip()}", "label": f"{au.strip()[:8]} -2dB"}
         elif atype == "twitch_chat":
             dlg = ctk.CTkInputDialog(text="Zadejte zprávu do Twitch chatu:", title="Twitch zpráva")
             msg = dlg.get_input()
@@ -1489,6 +2307,7 @@ class DeckView(ctk.CTkFrame):
         self.enc_widgets = []
         self.folders = []
         self._debounce_timer = None
+        self._button_states = [0] * 8
 
         # Plovoucí indikátor v rámci stejného okna (zabraňuje zamrznutí)
         self._drag_badge = None
@@ -1669,29 +2488,29 @@ class DeckView(ctk.CTkFrame):
         self.combo_profile.configure(text=f"{curr_name}  ▾")
 
     def _open_profile_dropdown(self):
-        """Otevře moderní tmavé kontextové menu pro výběr profilu (zcela bez bílých okrajů Win32 tk.Menu)."""
-        profs = self.config_mgr.list_profiles() if self.config_mgr else []
-        curr_id = getattr(self.config_mgr, "active_profile_id", "default")
+        """Otevře moderní tmavé kontextové menu pro výběr profilu s řazením tažením myší (drag & drop) a oddělovačem."""
+        if getattr(self, "_active_profile_dropdown", None):
+            try:
+                self._active_profile_dropdown.close()
+            except Exception:
+                pass
+            self._active_profile_dropdown = None
+            return
 
-        menu = ModernContextMenu(self)
-        for p in profs:
-            pid = p["id"]
-            pname = p["name"]
-            is_active = (pid == curr_id)
-            label = f"✓  {pname}" if is_active else f"    {pname}"
-            def _choose(target_id=pid):
-                self._switch_profile_by_id(target_id)
-            menu.add_command(label, _choose)
-
-        menu.add_separator()
-        menu.add_command("+ Nový profil...", self._add_profile_dialog)
-
+        dropdown = ProfileDropdownMenu(
+            parent=self,
+            config_mgr=self.config_mgr,
+            on_select_cb=self._switch_profile_by_id,
+            on_add_new_cb=self._add_profile_dialog,
+            on_order_changed_cb=self._render_profile_bar
+        )
+        self._active_profile_dropdown = dropdown
         try:
             bx = self.combo_profile.winfo_rootx()
             by = self.combo_profile.winfo_rooty() + self.combo_profile.winfo_height() + 4
         except Exception:
             bx, by = 200, 200
-        menu.show(bx, by)
+        dropdown.show(bx, by)
 
     def _switch_profile_by_id(self, pid):
         if pid and pid != getattr(self.config_mgr, "active_profile_id", None):
@@ -1787,6 +2606,7 @@ class DeckView(ctk.CTkFrame):
         pages = self.config_mgr.profile.get("pages", [])
         act_page = self.config_mgr.profile.get("active_page", 0)
 
+        self._page_pill_widgets = []
         for p_idx, page in enumerate(pages):
             is_active = (p_idx == act_page)
             num_str = str(p_idx + 1)
@@ -1813,14 +2633,17 @@ class DeckView(ctk.CTkFrame):
                     fg_color="transparent",
                     hover_color="#252838",
                     text_color="#8E95AE",
-                    font=ctk.CTkFont(size=11, weight="bold"),
-                    command=lambda i=p_idx: self.switch_to_page(i)
+                    font=ctk.CTkFont(size=11, weight="bold")
                 )
 
             btn_p.pack(side="left", padx=2, pady=2)
+            self._page_pill_widgets.append((p_idx, btn_p))
 
             # Pravé tlačítko pro smazání stránky ("mazat pravim tlacitkem")
             btn_p.bind("<Button-3>", lambda e, i=p_idx: self._on_page_pill_right_click(e, i))
+
+            # Drag & drop přeřazování stránek podržením levého tlačítka myši
+            self._bind_page_pill_drag(btn_p, p_idx)
 
         # Tlačítko + na konci ("pridavat tim pluskem")
         btn_add = ctk.CTkButton(
@@ -1836,6 +2659,136 @@ class DeckView(ctk.CTkFrame):
             command=self._add_quick_page
         )
         btn_add.pack(side="left", padx=(1, 4), pady=2)
+
+    def _bind_page_pill_drag(self, btn, p_idx):
+        def _press(e):
+            self._page_drag_src = p_idx
+            self._page_drag_start = (e.x_root, e.y_root)
+            self._page_drag_active = False
+
+        def _motion(e):
+            if getattr(self, "_page_drag_src", None) is None:
+                return
+            start = getattr(self, "_page_drag_start", (e.x_root, e.y_root))
+            dx = abs(e.x_root - start[0])
+            dy = abs(e.y_root - start[1])
+            if (dx > 5 or dy > 5) and not getattr(self, "_page_drag_active", False):
+                self._page_drag_active = True
+                self._start_page_drag_badge(p_idx, e.x_root, e.y_root)
+            elif getattr(self, "_page_drag_active", False):
+                self._update_page_drag_badge(e.x_root, e.y_root)
+
+        def _release(e):
+            src = getattr(self, "_page_drag_src", None)
+            was_drag = getattr(self, "_page_drag_active", False)
+            self._cleanup_page_drag()
+            if was_drag and src is not None:
+                target_idx = self._get_page_pill_at_x(e.x_root)
+                if target_idx is not None and target_idx != src:
+                    if self.config_mgr.reorder_pages(src, target_idx):
+                        self._render_pages_pill()
+                        self._refresh_all_buttons_ui()
+                        self.select_button(0)
+                        if self.serial and self.serial.is_connected:
+                            self.serial.sync_profile(self.config_mgr.profile)
+            elif not was_drag and src is not None:
+                self.switch_to_page(src)
+
+        btn.bind("<ButtonPress-1>", _press, add="+")
+        btn.bind("<B1-Motion>", _motion, add="+")
+        btn.bind("<ButtonRelease-1>", _release, add="+")
+
+    def _get_page_pill_at_x(self, x_root):
+        pills = getattr(self, "_page_pill_widgets", [])
+        if not pills:
+            return None
+        for idx, btn in pills:
+            try:
+                bx = btn.winfo_rootx()
+                bw = btn.winfo_width()
+                if bx <= x_root <= bx + bw:
+                    return idx
+            except Exception:
+                pass
+        try:
+            first_x = pills[0][1].winfo_rootx()
+            if x_root < first_x:
+                return 0
+            last_btn = pills[-1][1]
+            last_x = last_btn.winfo_rootx() + last_btn.winfo_width()
+            if x_root > last_x:
+                return pills[-1][0]
+        except Exception:
+            pass
+        return None
+
+    def _start_page_drag_badge(self, p_idx, x_root, y_root):
+        self._cleanup_page_drag_badge()
+        try:
+            top = tk.Toplevel(self)
+            top.overrideredirect(True)
+            top.attributes("-topmost", True)
+            top.configure(bg="#FF7A29")
+
+            inner = ctk.CTkFrame(top, fg_color="#181A26", corner_radius=6, border_width=0)
+            inner.pack(padx=1, pady=1)
+
+            lbl = ctk.CTkLabel(
+                inner,
+                text=f"  Stránka {p_idx + 1}  ",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color="#FFFFFF"
+            )
+            lbl.pack(padx=6, pady=4)
+            top.update_idletasks()
+            top.geometry(f"+{x_root + 12}+{y_root - 10}")
+            self._page_drag_badge = top
+        except Exception:
+            self._page_drag_badge = None
+
+    def _update_page_drag_badge(self, x_root, y_root):
+        if not getattr(self, "_page_drag_badge", None):
+            return
+        self._pending_page_drag_coords = (x_root, y_root)
+        now = time.time()
+        if now - getattr(self, "_last_page_drag_time", 0) >= 0.016:
+            self._last_page_drag_time = now
+            self._apply_page_drag_badge_pos()
+        else:
+            if not getattr(self, "_page_drag_timer", False):
+                self._page_drag_timer = True
+                self.after(16, self._flush_page_drag_badge_pos)
+
+    def _flush_page_drag_badge_pos(self):
+        self._page_drag_timer = False
+        if getattr(self, "_pending_page_drag_coords", None):
+            self._last_page_drag_time = time.time()
+            self._apply_page_drag_badge_pos()
+
+    def _apply_page_drag_badge_pos(self):
+        coords = getattr(self, "_pending_page_drag_coords", None)
+        if coords and getattr(self, "_page_drag_badge", None):
+            self._pending_page_drag_coords = None
+            try:
+                self._page_drag_badge.geometry(f"+{coords[0] + 12}+{coords[1] - 10}")
+            except Exception:
+                pass
+
+    def _cleanup_page_drag_badge(self):
+        if getattr(self, "_page_drag_badge", None):
+            try:
+                self._page_drag_badge.destroy()
+            except Exception:
+                pass
+            self._page_drag_badge = None
+
+    def _cleanup_page_drag(self):
+        self._cleanup_page_drag_badge()
+        self._page_drag_active = False
+        self._page_drag_src = None
+        self._page_drag_start = None
+        self._pending_page_drag_coords = None
+        self._page_drag_timer = False
 
     def _on_page_pill_right_click(self, e, p_idx):
         """Pravé tlačítko myši pro správu a smazání stránky."""
@@ -1957,13 +2910,60 @@ class DeckView(ctk.CTkFrame):
             if self.serial and self.serial.is_connected:
                 self.serial.sync_profile(self.config_mgr.profile)
 
-    def _refresh_all_buttons_ui(self):
+    def get_button_active_icon_and_label(self, idx):
+        """Vrátí aktivní ikonu a popisek tlačítka podle aktuálního stavu (Stav 1 vs Stav 2)."""
         buttons_data = self.config_mgr.profile.get("buttons", [])
-        for idx in range(8):
-            bdata = buttons_data[idx] if idx < len(buttons_data) else {}
+        bdata = buttons_data[idx] if idx < len(buttons_data) else {}
+        st = self._button_states[idx] if idx < len(self._button_states) else 0
+        has_state2 = bool(bdata.get("icon2") or bdata.get("custom_icon2") or bdata.get("label2"))
+        if st == 1 and has_state2:
+            icon = bdata.get("icon2") or bdata.get("icon", "")
+            label = bdata.get("label2") if bdata.get("label2") else bdata.get("label", "")
+            custom = bdata.get("custom_icon2", "")
+        else:
             icon = bdata.get("icon", "")
             label = bdata.get("label", "")
             custom = bdata.get("custom_icon", "")
+        return icon, label, custom
+
+    def toggle_button_runtime_state(self, idx):
+        """Přepne runtime stav tlačítka mezi stavem 1 a 2 při stisku."""
+        if idx >= len(self._button_states):
+            return
+        buttons_data = self.config_mgr.profile.get("buttons", [])
+        bdata = buttons_data[idx] if idx < len(buttons_data) else {}
+        has_state2 = bool(bdata.get("icon2") or bdata.get("custom_icon2") or bdata.get("label2"))
+        if not has_state2:
+            return
+
+        self._button_states[idx] = 1 - self._button_states[idx]
+        icon, label, custom = self.get_button_active_icon_and_label(idx)
+
+        if idx < len(self.btn_widgets):
+            self._update_button_widget_ui(self.btn_widgets[idx], icon, label, custom)
+
+        if self.serial and self.serial.is_connected:
+            self.serial.update_button(idx, icon if icon != "none" else "", label)
+
+        if self.selected_item == ("button", idx):
+            self._update_inspector_tiles_state(idx)
+
+    def set_button_preview_state(self, idx, state_idx):
+        """Nastaví vybraný stav pro náhled v aplikaci i na hardwaru."""
+        if idx >= len(self._button_states):
+            return
+        self._button_states[idx] = state_idx
+        icon, label, custom = self.get_button_active_icon_and_label(idx)
+        if idx < len(self.btn_widgets):
+            self._update_button_widget_ui(self.btn_widgets[idx], icon, label, custom)
+        if self.serial and self.serial.is_connected:
+            self.serial.update_button(idx, icon if icon != "none" else "", label)
+        if self.selected_item == ("button", idx):
+            self._update_inspector_tiles_state(idx)
+
+    def _refresh_all_buttons_ui(self):
+        for idx in range(8):
+            icon, label, custom = self.get_button_active_icon_and_label(idx)
             if idx < len(self.btn_widgets):
                 self._update_button_widget_ui(self.btn_widgets[idx], icon, label, custom)
 
@@ -2123,8 +3123,6 @@ class DeckView(ctk.CTkFrame):
                 dy = abs(e.y_root - self._btn_drag_start[1])
                 if (dx > 5 or dy > 5) and not getattr(self, "_btn_drag_active", False):
                     self._start_btn_to_btn_drag(btn_id, e.x_root, e.y_root)
-                elif getattr(self, "_btn_drag_active", False):
-                    self._on_btn_to_btn_drag_motion(e.x_root, e.y_root)
 
         def on_release(e):
             if getattr(self, "_btn_drag_active", False):
@@ -2141,11 +3139,21 @@ class DeckView(ctk.CTkFrame):
                 frame.configure(border_color="#4D5472")
 
         def on_leave(e):
+            try:
+                rx = frame.winfo_rootx()
+                ry = frame.winfo_rooty()
+                rw = frame.winfo_width()
+                rh = frame.winfo_height()
+                if rx <= e.x_root < rx + rw and ry <= e.y_root < ry + rh:
+                    return
+            except Exception:
+                pass
             if self.selected_item != ("button", btn_id):
                 frame.configure(border_color="#2C3042")
 
         for w_target in (frame, lbl_num, lbl_icon, lbl_text):
             w_target.bind("<Button-1>", on_press)
+            w_target.bind("<Double-Button-1>", lambda e: self._test_press_selected_button())
             w_target.bind("<B1-Motion>", on_motion)
             w_target.bind("<ButtonRelease-1>", on_release)
             w_target.bind("<Button-3>", on_right_click)
@@ -2251,6 +3259,15 @@ class DeckView(ctk.CTkFrame):
                 knob_circle.configure(border_color="#4E5572")
 
         def on_leave(e):
+            try:
+                rx = knob_circle.winfo_rootx()
+                ry = knob_circle.winfo_rooty()
+                rw = knob_circle.winfo_width()
+                rh = knob_circle.winfo_height()
+                if rx <= e.x_root < rx + rw and ry <= e.y_root < ry + rh:
+                    return
+            except Exception:
+                pass
             if self.selected_item != ("encoder", enc_id):
                 knob_circle.configure(border_color="#363A4E")
 
@@ -2341,61 +3358,37 @@ class DeckView(ctk.CTkFrame):
         body = ctk.CTkFrame(self.f_editor, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=10, pady=(0, 6))
 
-        # Levá dlaždice klávesy (+ vlevo nahoře, ▾ vpravo nahoře, ikona uprostřed, název dole)
+        # Rám pro dlaždici klávesy + volitelné testovací tlačítko pod ní
+        self.tile_box = ctk.CTkFrame(body, fg_color="transparent")
+        self.tile_box.pack(side="left", anchor="n", padx=(0, 16), pady=2)
+
         self.tile_frame = ctk.CTkFrame(
-            body,
+            self.tile_box,
             width=76,
             height=76,
-            corner_radius=12,
+            corner_radius=10,
             fg_color="#181A25",
             border_width=1.5,
-            border_color="#2E3348",
+            border_color="#FF7A29",
             cursor="hand2"
         )
         self.tile_frame.pack_propagate(False)
-        self.tile_frame.pack(side="left", anchor="n", padx=(0, 16), pady=4)
+        self.tile_frame.pack()
 
-        self.lbl_tile_plus = ctk.CTkLabel(
-            self.tile_frame,
-            text="+",
-            font=ctk.CTkFont(size=10, weight="bold"),
-            text_color="#64748B",
-            fg_color="transparent"
-        )
-        self.lbl_tile_plus.place(x=6, y=4)
+        self.lbl_tile_plus = ctk.CTkLabel(self.tile_frame, text="+", font=ctk.CTkFont(size=9, weight="bold"), text_color="#64748B", fg_color="transparent")
+        self.lbl_tile_plus.place(x=5, y=3)
 
-        self.lbl_tile_arrow = ctk.CTkLabel(
-            self.tile_frame,
-            text="▾",
-            font=ctk.CTkFont(size=10),
-            text_color="#64748B",
-            fg_color="transparent"
-        )
-        self.lbl_tile_arrow.place(x=60, y=4)
+        self.lbl_tile_arrow = ctk.CTkLabel(self.tile_frame, text="▾", font=ctk.CTkFont(size=9), text_color="#64748B", fg_color="transparent")
+        self.lbl_tile_arrow.place(x=62, y=3)
 
         self.lbl_tile_icon = ctk.CTkLabel(self.tile_frame, text="", fg_color="transparent")
         self.lbl_tile_icon.place(relx=0.5, rely=0.38, anchor="center")
 
-        self.lbl_tile_text = ctk.CTkLabel(
-            self.tile_frame,
-            text="",
-            font=ctk.CTkFont(size=9, weight="bold"),
-            text_color="#FFFFFF",
-            fg_color="transparent",
-            height=16
-        )
+        self.lbl_tile_text = ctk.CTkLabel(self.tile_frame, text="", font=ctk.CTkFont(size=8, weight="bold"), text_color="#FFFFFF", fg_color="transparent", height=14)
         self.lbl_tile_text.place(relx=0.5, rely=0.76, anchor="center")
-
-        def _on_tile_enter(e):
-            self.tile_frame.configure(border_color="#FF7A29")
-
-        def _on_tile_leave(e):
-            self.tile_frame.configure(border_color="#2E3348")
 
         for w in (self.tile_frame, self.lbl_tile_plus, self.lbl_tile_arrow, self.lbl_tile_icon, self.lbl_tile_text):
             w.bind("<Button-1>", lambda e: self._on_tile_clicked())
-            w.bind("<Enter>", _on_tile_enter)
-            w.bind("<Leave>", _on_tile_leave)
 
         # Pravý panel s řádky (Název, Cíl/Akce, Podrobnosti)
         props_col = ctk.CTkFrame(body, fg_color="transparent")
@@ -2408,7 +3401,7 @@ class DeckView(ctk.CTkFrame):
         self.lbl_r1_title = ctk.CTkLabel(
             r1, 
             text="Název:", 
-            width=70, 
+            width=58, 
             anchor="w", 
             font=ctk.CTkFont(size=12), 
             text_color="#8E95AE"
@@ -2424,10 +3417,10 @@ class DeckView(ctk.CTkFrame):
             border_color="#26293A",
             border_width=1,
             text_color="#FFFFFF",
-            font=ctk.CTkFont(size=11),
-            placeholder_text="Název tlačítka..."
+            font=ctk.CTkFont(size=12),
+            placeholder_text="Název klávesy..."
         )
-        self.entry_label.pack(side="left", padx=(0, 8))
+        self.entry_label.pack(side="left", padx=(0, 6))
         self.entry_label.bind("<KeyRelease>", self._on_label_changed)
 
         self.btn_font_style = ctk.CTkButton(
@@ -2496,6 +3489,19 @@ class DeckView(ctk.CTkFrame):
             text_color="#CBD5E1",
             font=ctk.CTkFont(size=11),
             command=self._browse_action_target
+        )
+
+        self.btn_record_hotkey = ctk.CTkButton(
+            self.row_target,
+            text="⌨ Zaznamenat...",
+            width=115,
+            height=30,
+            corner_radius=6,
+            fg_color="#FF7A29",
+            hover_color="#FFA05C",
+            text_color="#0B0B0E",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._on_record_hotkey_from_inspector
         )
 
         self._combo_param_map = {}
@@ -2720,8 +3726,10 @@ class DeckView(ctk.CTkFrame):
         """Vrací True, pokud akce vyžaduje výběr cíle/parametru v Property Inspectoru."""
         if act_type in ("none", "multi"):
             return False
-        if act_type in ("discord", "media", "volume", "system_mic"):
+        if act_type in ("discord", "media", "system_mic"):
             return False
+        if act_type == "volume":
+            return True
         if act_type == "profile":
             return True
         if act_type == "twitch":
@@ -2730,10 +3738,7 @@ class DeckView(ctk.CTkFrame):
                 return True
             return False
         if act_type == "obs":
-            p = str(act_param or "")
-            if p.startswith("scene:") or p.startswith("mute:") or p.startswith("vol_"):
-                return True
-            return False
+            return True
         if act_type == "page":
             p = str(act_param or "")
             if p.startswith("goto:"):
@@ -2744,9 +3749,6 @@ class DeckView(ctk.CTkFrame):
         if act_type in ("app", "url", "delay"):
             return True
         if act_type == "hotkey":
-            p = str(act_param or "").lower()
-            if p in ("win+shift+s", "screenshot", "win+l", "lock", "ctrl+c", "ctrl+v", "win+e"):
-                return False
             return True
         return False
 
@@ -2754,6 +3756,8 @@ class DeckView(ctk.CTkFrame):
         """Vrací vhodný popisek pro řádek výběru cíle v inspektoru."""
         if act_type == "profile":
             return "Cílový profil:"
+        elif act_type == "volume":
+            return "Směr hlasitosti:"
         elif act_type == "app":
             return "Program / Aplikace:"
         elif act_type == "url":
@@ -2768,7 +3772,7 @@ class DeckView(ctk.CTkFrame):
                 return "Cílová scéna OBS:"
             elif p.startswith("mute:") or p.startswith("vol_"):
                 return "Audio stopa OBS:"
-            return "Cíl OBS:"
+            return "Příkaz OBS:"
         elif act_type == "page":
             return "Cílová stránka:"
         elif act_type == "twitch":
@@ -3064,12 +4068,12 @@ class DeckView(ctk.CTkFrame):
         return str(act_param) if act_param else ""
 
     def _update_inspector_tile(self, icon, label, custom_icon=""):
-        """Aktualizuje vzhled levé dlaždice v inspektoru."""
+        """Aktualizuje vzhled hlavní dlaždice v inspektoru."""
         img = None
         if custom_icon:
-            img = load_custom_image(custom_icon, size=(36, 36))
+            img = load_custom_image(custom_icon, size=(38, 38))
         elif icon and icon != "none":
-            img = get_asset_icon(icon, size=(36, 36))
+            img = get_asset_icon(icon, size=(38, 38))
 
         if img:
             self.lbl_tile_icon.configure(image=img, text="")
@@ -3080,22 +4084,49 @@ class DeckView(ctk.CTkFrame):
             else:
                 self.lbl_tile_icon.configure(image=None, text="+", font=ctk.CTkFont(size=16, weight="bold"), text_color="#3E4358")
 
-        clean = label.strip()
+        clean = (label or "").strip()
         if clean:
             self.lbl_tile_text.configure(text=clean, text_color="#FFFFFF")
-            self.lbl_tile_icon.place(relx=0.5, rely=0.38, anchor="center")
-            self.lbl_tile_text.place(relx=0.5, rely=0.76, anchor="center")
+            self.lbl_tile_icon.place(relx=0.5, rely=0.36, anchor="center")
+            self.lbl_tile_text.place(relx=0.5, rely=0.78, anchor="center")
         else:
             self.lbl_tile_text.place_forget()
             self.lbl_tile_icon.place(relx=0.5, rely=0.50, anchor="center")
 
+    def _update_inspector_tiles_state(self, btn_id):
+        """Aktualizuje dlaždici v inspektoru podle aktuálního stavu."""
+        if self.selected_item != ("button", btn_id):
+            return
+        icon, label, custom = self.get_button_active_icon_and_label(btn_id)
+        self._update_inspector_tile(icon, label, custom)
+
     def _on_tile_clicked(self):
-        """Kliknutí na dlaždici otevře výběr ikony."""
         if not self.selected_item:
             return
-        itype = self.selected_item[0]
+        itype, idx = self.selected_item[0], self.selected_item[1]
         if itype == "button":
             self._open_icon_picker()
+
+    def _on_tile1_clicked(self):
+        self._on_tile_clicked()
+
+    def _on_tile2_clicked(self):
+        self._on_tile_clicked()
+
+    def _test_press_selected_button(self):
+        """Otestuje stisk tlačítka – spustí přiřazenou akci a přepne stav."""
+        if not self.selected_item or self.selected_item[0] != "button":
+            return
+        idx = self.selected_item[1]
+        buttons = self.config_mgr.profile.get("buttons", [])
+        if idx >= len(buttons):
+            return
+        bdata = buttons[idx]
+        if self.action_handler:
+            self.action_handler.execute(bdata)
+        self.highlight_button(idx, True)
+        self.after(140, lambda: self.highlight_button(idx, False))
+        self.toggle_button_runtime_state(idx)
 
     def _toggle_font_style(self):
         """Přepne formát textu (Velká písmena / Standardní)."""
@@ -3116,6 +4147,40 @@ class DeckView(ctk.CTkFrame):
         self.entry_label.delete(0, "end")
         self.entry_label.insert(0, new_lbl)
         self._on_label_changed()
+
+    def _on_record_hotkey_from_inspector(self):
+        """Interaktivní záznam klávesové zkratky přímo z Property Inspectoru."""
+        if not self.selected_item or self.selected_item[0] != "button":
+            return
+        idx = self.selected_item[1]
+        buttons = self.config_mgr.profile.get("buttons", [])
+        bdata = buttons[idx] if idx < len(buttons) else {}
+        curr = bdata.get("action_param", "")
+
+        dlg = HotkeyRecorderDialog(self, current_value=curr, title="Záznam klávesové zkratky")
+        new_hk = dlg.get_hotkey()
+        if new_hk:
+            new_hk = normalize_hotkey(new_hk)
+            bdata["action_param"] = new_hk
+            old_label = bdata.get("label", "")
+            if not old_label or old_label.lower() in ("zkratka", curr.lower()):
+                bdata["label"] = new_hk.upper()
+                self.entry_label.delete(0, "end")
+                self.entry_label.insert(0, bdata["label"])
+
+            self.config_mgr.save_profile()
+            self._populate_target_combo("hotkey", new_hk, bdata)
+            self.lbl_param_detail.configure(text=self._format_action_detail("hotkey", new_hk))
+            self.lbl_insp_title.configure(text=self._format_action_title("hotkey", new_hk, idx))
+
+            icon, label, custom = self.get_button_active_icon_and_label(idx)
+            self._update_button_widget_ui(self.btn_widgets[idx], icon, label, custom)
+            self._update_display_cell_ui(idx, icon, label, custom)
+            self._update_inspector_tile(icon, label, custom)
+            if self.serial and self.serial.is_connected:
+                self.serial.update_button(idx, icon, label)
+        else:
+            self._populate_target_combo("hotkey", curr, bdata)
 
     def _browse_action_target(self):
         """Tlačítko procházení souborů pro řádek akce (složka)."""
@@ -3148,10 +4213,12 @@ class DeckView(ctk.CTkFrame):
             if new_p:
                 bdata["action_param"] = new_p
         elif atype == "hotkey":
-            dialog = ctk.CTkInputDialog(text="Zadejte klávesovou zkratku (např. ctrl+shift+m):", title="Klávesová zkratka")
-            new_p = dialog.get_input()
+            dialog = HotkeyRecorderDialog(self, current_value=bdata.get("action_param", ""), title="Klávesová zkratka")
+            new_p = dialog.get_hotkey()
             if new_p:
                 bdata["action_param"] = new_p
+                if not bdata.get("label") or bdata.get("label") == bdata.get("action_param", "").upper():
+                    bdata["label"] = new_p.upper()
 
         elif atype == "obs":
             dlg = OBSActionChooserDialog(self, bdata.get("action_param", ""), self.obs_controller)
@@ -3216,37 +4283,41 @@ class DeckView(ctk.CTkFrame):
         self.config_mgr.save_profile()
         self.lbl_param_detail.configure(text=self._format_action_detail(bdata.get("action_type", "none"), new_val))
 
-    def _open_icon_picker(self):
-        """Otevře okno s výběrem ikony."""
+    def _open_icon_picker(self, state=1):
+        """Otevře okno s výběrem ikony a konfigurací stavů klávesy."""
         if not self.selected_item or self.selected_item[0] != "button":
             return
         idx = self.selected_item[1]
         buttons = self.config_mgr.profile.get("buttons", [])
         bdata = buttons[idx] if idx < len(buttons) else {}
 
-        current_icon = bdata.get("icon", "none")
-        current_custom = bdata.get("custom_icon", "")
-
-        def _on_chosen(icon_key, custom_path):
-            if custom_path:
-                self.config_mgr.profile["buttons"][idx]["icon"] = "custom"
-                self.config_mgr.profile["buttons"][idx]["custom_icon"] = custom_path
+        def _on_save(res):
+            self.config_mgr.profile["buttons"][idx]["icon"] = res.get("icon", "none")
+            self.config_mgr.profile["buttons"][idx]["custom_icon"] = res.get("custom_icon", "")
+            has_s2 = res.get("has_state2", False)
+            if has_s2:
+                self.config_mgr.profile["buttons"][idx]["icon2"] = res.get("icon2", "")
+                self.config_mgr.profile["buttons"][idx]["custom_icon2"] = res.get("custom_icon2", "")
+                self.config_mgr.profile["buttons"][idx]["label2"] = res.get("label2", "")
             else:
-                self.config_mgr.profile["buttons"][idx]["icon"] = icon_key
-                self.config_mgr.profile["buttons"][idx]["custom_icon"] = ""
+                self.config_mgr.profile["buttons"][idx]["icon2"] = ""
+                self.config_mgr.profile["buttons"][idx]["custom_icon2"] = ""
+                self.config_mgr.profile["buttons"][idx]["label2"] = ""
+                self._button_states[idx] = 0
 
             self.config_mgr.save_profile()
+            self.select_button(idx)
+            self._refresh_all_buttons_ui()
 
-            label = self.config_mgr.profile["buttons"][idx].get("label", "")
-            w = self.btn_widgets[idx]
-            self._update_button_widget_ui(w, icon_key, label, custom_path)
-            self._update_display_cell_ui(idx, icon_key, label, custom_path)
-            self._update_inspector_tile(icon_key, label, custom_path)
-
+            icon, label, _ = self.get_button_active_icon_and_label(idx)
             if self.serial and self.serial.is_connected:
-                self.serial.update_button(idx, icon_key if icon_key != "none" else "", label)
+                self.serial.update_button(idx, icon if icon != "none" else "", label)
 
-        IconPickerModal(self, current_icon, current_custom, _on_chosen)
+        IconPickerModal(
+            parent=self,
+            bdata=bdata,
+            on_save_cb=_on_save
+        )
 
     def _edit_action_param(self):
         """Umožňuje přímou úpravu URL, klávesové zkratky, OBS nebo režimu enkodéru v inspektoru."""
@@ -3289,8 +4360,8 @@ class DeckView(ctk.CTkFrame):
             dialog = ctk.CTkInputDialog(text="Zadejte webovou URL adresu:", title="Webová adresa")
             new_p = dialog.get_input()
         elif atype == "hotkey":
-            dialog = ctk.CTkInputDialog(text="Zadejte klávesovou zkratku (např. ctrl+shift+m):", title="Klávesová zkratka")
-            new_p = dialog.get_input()
+            dialog = HotkeyRecorderDialog(self, current_value=bdata.get("action_param", ""), title="Klávesová zkratka")
+            new_p = dialog.get_hotkey()
         elif atype == "app":
             new_p = filedialog.askopenfilename(title="Vyberte program k spuštění", filetypes=[("Programy", "*.exe;*.bat;*.cmd;*.*")])
         elif atype == "obs":
@@ -3415,6 +4486,9 @@ class DeckView(ctk.CTkFrame):
                     {"label": "Předchozí scéna OBS",      "short": "Předch. scéna","icon": "scene",    "type": "obs", "param": "prev_scene"},
                     {"label": "Přepnout na scénu...",      "short": "Scéna",      "icon": "scene",      "type": "obs", "param": "CUSTOM_SCENE"},
                     {"label": "Ztlumit zvuk (Mute OBS)...","short": "Mute OBS",   "icon": "mute",       "type": "obs", "param": "CUSTOM_MUTE"},
+                    {"label": "Zvýšit hlasitost zvuku (+2 dB)...", "short": "OBS Zvuk +", "icon": "vol_up", "type": "obs", "param": "CUSTOM_VOL_UP"},
+                    {"label": "Snížit hlasitost zvuku (-2 dB)...", "short": "OBS Zvuk -", "icon": "vol_down", "type": "obs", "param": "CUSTOM_VOL_DOWN"},
+                    {"label": "Ovládání stopy (pro enkodér)...", "short": "OBS Enkodér", "icon": "vol_up", "type": "obs_encoder", "param": "CUSTOM_ENC_VOLUME"},
                     {"label": "Virtuální webkamera",       "short": "Virt. kamera","icon": "obs",       "type": "obs", "param": "toggle_virtual_cam"},
                     {"label": "Uložit Replay Buffer",      "short": "Replay",     "icon": "rec",        "type": "obs", "param": "save_replay_buffer"}
                 ]
@@ -3454,9 +4528,8 @@ class DeckView(ctk.CTkFrame):
                 "icon_name": "vol_up",
                 "start_open": False,
                 "items": [
-                    {"label": "Zvýšit hlasitost (+)",  "short": "Hlas +",     "icon": "vol_up", "type": "volume", "param": "up"},
-                    {"label": "Snížit hlasitost (-)",  "short": "Hlas -",     "icon": "vol_down", "type": "volume", "param": "down"},
-                    {"label": "Ztlumit zvuk (Mute)",    "short": "Mute",       "icon": "mute", "type": "volume", "param": "mute"},
+                    {"label": "Ovládání hlasitosti (+ / -)", "short": "Hlasitost", "icon": "vol_up", "type": "volume", "param": "up"},
+                    {"label": "Ztlumit zvuk (Mute)",         "short": "Mute",       "icon": "mute",   "type": "volume", "param": "mute"},
                     {"label": "Přehrát / Pozastavit",  "short": "Play/Pauza", "icon": "play", "type": "media", "param": "play_pause"},
                     {"label": "Další skladba",        "short": "Další",      "icon": "next", "type": "media", "param": "next"},
                     {"label": "Předchozí skladba",    "short": "Předchozí",  "icon": "prev", "type": "media", "param": "prev"},
@@ -3549,14 +4622,14 @@ class DeckView(ctk.CTkFrame):
             lbl.pack()
 
             self._drag_badge = top
+            self._cache_target_geometry()
             self._update_badge_pos(start_x, start_y)
         except Exception:
             self._drag_badge = None
 
     def _on_drag_motion(self, x_root, y_root):
         if self._drag_badge:
-            self._update_badge_pos(x_root, y_root)
-            self._highlight_hovered_target(x_root, y_root)
+            self._throttled_drag_motion(x_root, y_root, is_btn_drag=False)
 
     def _update_badge_pos(self, x_root, y_root):
         if self._drag_badge:
@@ -3564,6 +4637,38 @@ class DeckView(ctk.CTkFrame):
                 self._drag_badge.geometry(f"+{x_root + 14}+{y_root + 14}")
             except Exception:
                 pass
+
+    def _throttled_drag_motion(self, x_root, y_root, is_btn_drag=False):
+        """Omezí frekvenci aktualizace pozice a cílů tažení na ~60 FPS (16ms).
+        Zabraňuje zahlcení Windows DWM a event loopu při použití herních myší s 1000Hz pollingem."""
+        self._pending_drag_coords = (x_root, y_root, is_btn_drag)
+        now = time.time()
+        if now - getattr(self, "_last_drag_motion_time", 0) >= 0.016:
+            self._last_drag_motion_time = now
+            self._apply_drag_motion_step()
+        else:
+            if not getattr(self, "_drag_timer_scheduled", False):
+                self._drag_timer_scheduled = True
+                self.after(16, self._flush_pending_drag_motion)
+
+    def _flush_pending_drag_motion(self):
+        self._drag_timer_scheduled = False
+        if getattr(self, "_pending_drag_coords", None):
+            self._last_drag_motion_time = time.time()
+            self._apply_drag_motion_step()
+
+    def _apply_drag_motion_step(self):
+        coords = getattr(self, "_pending_drag_coords", None)
+        if not coords:
+            return
+        x_root, y_root, is_btn_drag = coords
+        self._pending_drag_coords = None
+
+        if is_btn_drag:
+            self._update_btn_drag_badge_pos(x_root, y_root)
+        else:
+            self._update_badge_pos(x_root, y_root)
+        self._highlight_hovered_target(x_root, y_root)
 
     def _on_global_b1_motion(self, e):
         if getattr(self, "_is_resizing_inspector", False):
@@ -3578,9 +4683,9 @@ class DeckView(ctk.CTkFrame):
                     self._sp_timer_active = True
                     self.after(16, self._flush_pending_resize)
         elif getattr(self, "_btn_drag_active", False):
-            self._on_btn_to_btn_drag_motion(e.x_root, e.y_root)
+            self._throttled_drag_motion(e.x_root, e.y_root, is_btn_drag=True)
         elif self._active_drag_item is not None:
-            self._on_drag_motion(e.x_root, e.y_root)
+            self._throttled_drag_motion(e.x_root, e.y_root, is_btn_drag=False)
 
     def _flush_pending_resize(self):
         self._sp_timer_active = False
@@ -3660,6 +4765,31 @@ class DeckView(ctk.CTkFrame):
                 pass
             self._drag_badge = None
 
+    def _cache_target_geometry(self):
+        """Uloží do mezipaměti souřadnice všech 8 tlačítek a 3 enkodérů na začátku tažení.
+        Během tažení myší pak není nutné na každý mikropohyb volat winfo_rootx/y,
+        což eliminuje stovky volání Tkinter/Win32 API za sekundu."""
+        self._target_cache = []
+        for idx, w in enumerate(self.btn_widgets):
+            try:
+                wx = w.winfo_rootx()
+                wy = w.winfo_rooty()
+                ww = w.winfo_width()
+                wh = w.winfo_height()
+                self._target_cache.append((("button", idx), wx, wy, wx + ww, wy + wh))
+            except Exception:
+                pass
+        for idx, w in enumerate(self.enc_widgets):
+            try:
+                ex = w.winfo_rootx()
+                ey = w.winfo_rooty()
+                ew = w.winfo_width()
+                eh = w.winfo_height()
+                self._target_cache.append((("encoder", idx), ex, ey, ex + ew, ey + eh))
+            except Exception:
+                pass
+        self._current_hover_target = None
+
     def _cleanup_drag(self):
         self._cleanup_drag_badge()
         self._cleanup_btn_drag_badge()
@@ -3668,6 +4798,9 @@ class DeckView(ctk.CTkFrame):
         self._btn_drag_src = None
         self._btn_drag_candidate = None
         self._btn_drag_start = None
+        self._target_cache = None
+        self._current_hover_target = None
+        self._pending_drag_coords = None
 
         for i, w in enumerate(self.btn_widgets):
             is_sel = (self.selected_item == ("button", i))
@@ -3678,7 +4811,13 @@ class DeckView(ctk.CTkFrame):
             w._knob_circle.configure(border_color="#FF7A29" if is_sel else "#363A4E", border_width=3 if is_sel else 2)
 
     def _find_target_at_pos(self, x_root, y_root):
-        # 1. Klávesy
+        if getattr(self, "_target_cache", None):
+            for t_id, x1, y1, x2, y2 in self._target_cache:
+                if x1 <= x_root <= x2 and y1 <= y_root <= y2:
+                    return t_id
+            return None
+
+        # Fallback pokud cache není k dispozici
         for idx, w in enumerate(self.btn_widgets):
             try:
                 wx = w.winfo_rootx()
@@ -3690,7 +4829,6 @@ class DeckView(ctk.CTkFrame):
             except Exception:
                 pass
 
-        # 2. Enkodéry
         for idx, w in enumerate(self.enc_widgets):
             try:
                 ex = w.winfo_rootx()
@@ -3706,20 +4844,33 @@ class DeckView(ctk.CTkFrame):
 
     def _highlight_hovered_target(self, x_root, y_root):
         target = self._find_target_at_pos(x_root, y_root)
+        if target == getattr(self, "_current_hover_target", None):
+            return  # Žádná změna cíle -> 0 volání configure/redraw
 
-        for idx, w in enumerate(self.btn_widgets):
-            if target == ("button", idx):
-                w.configure(border_color="#FF7A29", border_width=2)
-            else:
-                is_sel = (self.selected_item == ("button", idx))
-                w.configure(border_color="#FF7A29" if is_sel else "#2C3042", border_width=2 if is_sel else 1)
+        prev_target = getattr(self, "_current_hover_target", None)
+        self._current_hover_target = target
 
-        for idx, w in enumerate(self.enc_widgets):
-            if target == ("encoder", idx):
-                w._knob_circle.configure(border_color="#FF7A29", border_width=3)
-            else:
-                is_sel = (self.selected_item == ("encoder", idx))
-                w._knob_circle.configure(border_color="#FF7A29" if is_sel else "#363A4E", border_width=3 if is_sel else 2)
+        if prev_target:
+            ttype, tidx = prev_target
+            if ttype == "button" and tidx < len(self.btn_widgets):
+                is_sel = (self.selected_item == ("button", tidx))
+                self.btn_widgets[tidx].configure(
+                    border_color="#FF7A29" if is_sel else "#2C3042",
+                    border_width=2 if is_sel else 1
+                )
+            elif ttype == "encoder" and tidx < len(self.enc_widgets):
+                is_sel = (self.selected_item == ("encoder", tidx))
+                self.enc_widgets[tidx]._knob_circle.configure(
+                    border_color="#FF7A29" if is_sel else "#363A4E",
+                    border_width=3 if is_sel else 2
+                )
+
+        if target:
+            ttype, tidx = target
+            if ttype == "button" and tidx < len(self.btn_widgets):
+                self.btn_widgets[tidx].configure(border_color="#FF7A29", border_width=2)
+            elif ttype == "encoder" and tidx < len(self.enc_widgets):
+                self.enc_widgets[tidx]._knob_circle.configure(border_color="#FF7A29", border_width=3)
 
     # =========================================================================
     #  PŘESOUVÁNÍ A PROHAZOVÁNÍ TLAČÍTEK TAŽENÍM MYŠÍ (DRAG & DROP)
@@ -3733,6 +4884,7 @@ class DeckView(ctk.CTkFrame):
         self._btn_drag_active = True
         self._btn_drag_src = btn_id
         self._cleanup_btn_drag_badge()
+        self._cache_target_geometry()
 
         try:
             top = tk.Toplevel(self.winfo_toplevel())
@@ -3782,8 +4934,7 @@ class DeckView(ctk.CTkFrame):
 
     def _on_btn_to_btn_drag_motion(self, x_root, y_root):
         if getattr(self, "_btn_drag_badge", None):
-            self._update_btn_drag_badge_pos(x_root, y_root)
-            self._highlight_hovered_target(x_root, y_root)
+            self._throttled_drag_motion(x_root, y_root, is_btn_drag=True)
 
     def _end_btn_to_btn_drag(self, x_root, y_root):
         src_id = getattr(self, "_btn_drag_src", None)
@@ -3812,6 +4963,9 @@ class DeckView(ctk.CTkFrame):
         self._btn_drag_src = None
         self._btn_drag_candidate = None
         self._btn_drag_start = None
+        self._target_cache = None
+        self._current_hover_target = None
+        self._pending_drag_coords = None
 
         for i, w in enumerate(self.btn_widgets):
             is_sel = (self.selected_item == ("button", i))
@@ -3996,11 +5150,13 @@ class DeckView(ctk.CTkFrame):
             else:
                 self.btn_clear.configure(state="normal", fg_color="#1E171E", border_color="#431C24", text_color="#F87171")
 
-        # 2. Levá dlaždice (ikona, popisek, +, ▾)
+        # 2. Levá dlaždice
+        icon, label, custom_icon = self.get_button_active_icon_and_label(btn_id)
         self._update_inspector_tile(icon, label, custom_icon)
 
         # 3. Řádek 1: Název
         self.lbl_r1_title.configure(text="Název:")
+        self.entry_label.configure(width=320)
         self.entry_label.delete(0, "end")
         self.entry_label.insert(0, label)
         self.btn_font_style.pack(side="left")
@@ -4043,6 +5199,9 @@ class DeckView(ctk.CTkFrame):
         self.row_target.pack(fill="x", pady=(0, 6))
         self.row_detail.pack(fill="x")
 
+        self.lbl_r1_title.configure(text="Název:")
+        self.entry_label.configure(width=320)
+
         encoders = self.config_mgr.profile.get("encoders", [])
         edata = encoders[enc_id] if enc_id < len(encoders) else {}
 
@@ -4060,7 +5219,6 @@ class DeckView(ctk.CTkFrame):
         self.lbl_tile_text.configure(text=f"E{enc_id + 1}", text_color="#FF7A29")
         self.lbl_tile_text.place(relx=0.5, rely=0.76, anchor="center")
 
-        self.lbl_r1_title.configure(text="Název:")
         self.entry_label.delete(0, "end")
         self.entry_label.insert(0, name)
         self.btn_font_style.pack_forget()
@@ -4077,39 +5235,136 @@ class DeckView(ctk.CTkFrame):
     def _populate_target_combo(self, act_type, act_param, bdata):
         """Naplní rozbalovací nabídku (ComboBox) možnostmi dle vybrané akce (roztahování dle Fotky 3)."""
         self.btn_browse.pack_forget()
+        if hasattr(self, "btn_record_hotkey"):
+            self.btn_record_hotkey.pack_forget()
+        self.combo_target_choice.configure(width=320)
         self.combo_target_choice.pack(side="left")
         self._combo_param_map = {}
 
         if act_type == "obs":
-            std_obs = [
-                ("OBS: Vysílání (Stream)", "toggle_stream"),
-                ("OBS: Záznam (Record)", "toggle_record"),
-                ("OBS: Pauza / Obnovit záznam", "toggle_record_pause"),
-                ("OBS: Další scéna", "next_scene"),
-                ("OBS: Předchozí scéna", "prev_scene"),
-                ("OBS: Virtuální webkamera", "toggle_virtual_cam"),
-                ("OBS: Uložit Replay buffer", "save_replay_buffer")
-            ]
-            for label, p in std_obs:
-                self._combo_param_map[label] = p
+            p = str(act_param or "")
+            if p.startswith("mute:") or p.startswith("vol_"):
+                # Audio stopa (Mute / Hlasitost)
+                curr_track = p.split(":", 1)[1].strip() if ":" in p else ""
 
-            scenes = self.obs_controller.get_scenes() if self.obs_controller else []
-            for sc in scenes:
-                self._combo_param_map[f"OBS Scéna: {sc}"] = f"scene:{sc}"
+                audio_sources = []
+                seen = set()
 
-            audios = self.obs_controller.get_audio_inputs() if self.obs_controller else []
-            for au in audios:
-                self._combo_param_map[f"OBS Ztlumit: {au}"] = f"mute:{au}"
+                if curr_track:
+                    audio_sources.append(curr_track)
+                    seen.add(curr_track.lower())
 
-            vals = list(self._combo_param_map.keys())
-            self.combo_target_choice.configure(values=vals)
+                obs_audios = self.obs_controller.get_audio_inputs() if self.obs_controller else []
+                for a in obs_audios:
+                    if a and a.lower() not in seen:
+                        audio_sources.append(a)
+                        seen.add(a.lower())
 
-            curr_val = vals[0] if vals else ""
-            for lbl, p in self._combo_param_map.items():
-                if p == act_param:
-                    curr_val = lbl
-                    break
-            self.combo_target_choice.set(curr_val)
+                for def_a in ["Mikrofon", "Microfon", "Mic/Aux", "Zvuk plochy", "Desktop Audio"]:
+                    if def_a.lower() not in seen:
+                        audio_sources.append(def_a)
+                        seen.add(def_a.lower())
+
+                if self.config_mgr and hasattr(self.config_mgr, "profile"):
+                    for btn in self.config_mgr.profile.get("buttons", []):
+                        bp = str(btn.get("action_param", ""))
+                        if btn.get("action_type") == "obs" and (bp.startswith("mute:") or bp.startswith("vol_")):
+                            trk = bp.split(":", 1)[1].strip()
+                            if trk and trk.lower() not in seen:
+                                audio_sources.append(trk)
+                                seen.add(trk.lower())
+
+                prefix = "mute:"
+                if p.startswith("vol_up:"): prefix = "vol_up:"
+                elif p.startswith("vol_down:"): prefix = "vol_down:"
+
+                curr_val = ""
+                for trk in audio_sources:
+                    self._combo_param_map[trk] = f"{prefix}{trk}"
+                    if trk.lower() == curr_track.lower():
+                        curr_val = trk
+
+                self._combo_param_map["+ Zadat jinou audio stopu / mikrofon..."] = "CUSTOM_MUTE_INPUT"
+                self._combo_param_map["⚙️ Změnit typ OBS akce..."] = "CHANGE_OBS_ACTION"
+
+                vals = list(self._combo_param_map.keys())
+                self.combo_target_choice.configure(values=vals)
+                if not curr_val and vals:
+                    curr_val = vals[0]
+                self.combo_target_choice.set(curr_val)
+
+            elif p.startswith("scene:"):
+                # OBS Scéna
+                curr_scene = p[6:].strip() if len(p) > 6 else ""
+
+                scene_sources = []
+                seen = set()
+
+                if curr_scene:
+                    scene_sources.append(curr_scene)
+                    seen.add(curr_scene.lower())
+
+                obs_scenes = self.obs_controller.get_scenes() if self.obs_controller else []
+                for s in obs_scenes:
+                    if s and s.lower() not in seen:
+                        scene_sources.append(s)
+                        seen.add(s.lower())
+
+                for def_s in ["Hlavní scéna", "Hra", "Kamera", "Pauza", "Konec"]:
+                    if def_s.lower() not in seen:
+                        scene_sources.append(def_s)
+                        seen.add(def_s.lower())
+
+                if self.config_mgr and hasattr(self.config_mgr, "profile"):
+                    for btn in self.config_mgr.profile.get("buttons", []):
+                        bp = str(btn.get("action_param", ""))
+                        if btn.get("action_type") == "obs" and bp.startswith("scene:"):
+                            sc = bp[6:].strip()
+                            if sc and sc.lower() not in seen:
+                                scene_sources.append(sc)
+                                seen.add(sc.lower())
+
+                curr_val = ""
+                for sc in scene_sources:
+                    self._combo_param_map[sc] = f"scene:{sc}"
+                    if sc.lower() == curr_scene.lower():
+                        curr_val = sc
+
+                self._combo_param_map["+ Zadat jinou scénu..."] = "CUSTOM_SCENE_INPUT"
+                self._combo_param_map["⚙️ Změnit typ OBS akce..."] = "CHANGE_OBS_ACTION"
+
+                vals = list(self._combo_param_map.keys())
+                self.combo_target_choice.configure(values=vals)
+                if not curr_val and vals:
+                    curr_val = vals[0]
+                self.combo_target_choice.set(curr_val)
+
+            else:
+                # Obecné příkazy OBS
+                std_obs = [
+                    ("Spustit / Zastavit Stream", "toggle_stream"),
+                    ("Spustit / Zastavit Záznam", "toggle_record"),
+                    ("Pozastavit / Obnovit Záznam", "toggle_record_pause"),
+                    ("Další scéna OBS", "next_scene"),
+                    ("Předchozí scéna OBS", "prev_scene"),
+                    ("Virtuální webkamera", "toggle_virtual_cam"),
+                    ("Uložit Replay buffer", "save_replay_buffer"),
+                    ("OBS: Ztlumit mikrofon (Mute)...", "CUSTOM_MUTE_INPUT"),
+                    ("OBS: Přepnout na scénu...", "CUSTOM_SCENE_INPUT"),
+                    ("⚙️ Změnit typ OBS akce...", "CHANGE_OBS_ACTION")
+                ]
+                for label, cmd in std_obs:
+                    self._combo_param_map[label] = cmd
+
+                vals = list(self._combo_param_map.keys())
+                self.combo_target_choice.configure(values=vals)
+
+                curr_val = vals[0] if vals else ""
+                for lbl, cmd in self._combo_param_map.items():
+                    if cmd == p:
+                        curr_val = lbl
+                        break
+                self.combo_target_choice.set(curr_val)
 
         elif act_type == "page":
             self._combo_param_map = {
@@ -4225,7 +5480,7 @@ class DeckView(ctk.CTkFrame):
             else:
                 vals = [lbl for lbl, _ in presets]
 
-            self.combo_target_choice.configure(values=vals)
+            self.combo_target_choice.configure(width=195, values=vals)
             curr_val = ""
             for lbl, p in self._combo_param_map.items():
                 if p == act_param:
@@ -4263,15 +5518,26 @@ class DeckView(ctk.CTkFrame):
                 ("Ztlumit mikrofon (Ctrl+Shift+M)", "ctrl+shift+m"),
                 ("Deafen sluchátka (Ctrl+Shift+D)", "ctrl+shift+d")
             ]
-            self._combo_param_map = {lbl: p for lbl, p in presets}
-            vals = [lbl for lbl, _ in presets]
-            self.combo_target_choice.configure(values=vals)
-            curr_val = act_param if act_param else vals[0]
+            self._combo_param_map = {
+                "⌨ Zaznamenat novou zkratku stiskem...": "RECORD_NEW_HOTKEY"
+            }
+            curr_str = str(act_param or "").strip()
+            if curr_str:
+                self._combo_param_map[f"Aktuální: {curr_str.upper()}"] = curr_str
+
+            for lbl, p in presets:
+                self._combo_param_map[lbl] = p
+
+            vals = list(self._combo_param_map.keys())
+            self.combo_target_choice.configure(width=195, values=vals)
+            curr_val = f"Aktuální: {curr_str.upper()}" if curr_str else vals[0]
             for lbl, p in self._combo_param_map.items():
-                if p.lower() == str(act_param).lower():
+                if p.lower() == curr_str.lower() and lbl != "⌨ Zaznamenat novou zkratku stiskem...":
                     curr_val = lbl
                     break
             self.combo_target_choice.set(curr_val)
+            if hasattr(self, "btn_record_hotkey"):
+                self.btn_record_hotkey.pack(side="left", padx=(8, 0))
 
         elif act_type == "delay":
             presets = [
@@ -4345,12 +5611,81 @@ class DeckView(ctk.CTkFrame):
         if itype == "button":
             bdata = self.config_mgr.profile["buttons"][idx]
             new_param = self._combo_param_map.get(choice, choice)
-            bdata["action_param"] = new_param
+
+            if new_param == "RECORD_NEW_HOTKEY":
+                self._on_record_hotkey_from_inspector()
+                return
+
+            if new_param == "CUSTOM_MUTE_INPUT":
+                audios = self.obs_controller.get_audio_inputs() if self.obs_controller else []
+                if audios:
+                    dlg = OBSItemPickerDialog(self, "Ztlumit zvuk OBS", "Vyberte nebo zadejte audio stopu pro ztlumení (Mute):", audios)
+                    chosen_track = dlg.get_result()
+                else:
+                    dialog = ctk.CTkInputDialog(text="Zadejte název audio stopy v OBS (např. Microfon, Mic/Aux, Zvuk plochy):", title="Audio stopa OBS")
+                    chosen_track = dialog.get_input()
+
+                if chosen_track and chosen_track.strip():
+                    new_param = f"mute:{chosen_track.strip()}"
+                    bdata["action_type"] = "obs"
+                    bdata["action_param"] = new_param
+                    if not bdata.get("label") or bdata.get("label") in ("Mikrofon", "Microfon", "Mute OBS"):
+                        bdata["label"] = chosen_track.strip()[:10]
+                        self.entry_label.delete(0, "end")
+                        self.entry_label.insert(0, bdata["label"])
+                else:
+                    self._populate_target_combo("obs", bdata.get("action_param", ""), bdata)
+                    return
+
+            elif new_param == "CUSTOM_SCENE_INPUT":
+                scenes = self.obs_controller.get_scenes() if self.obs_controller else []
+                if scenes:
+                    dlg = OBSItemPickerDialog(self, "Výběr scény OBS", "Vyberte nebo zadejte scénu OBS pro přepnutí:", scenes)
+                    chosen_scene = dlg.get_result()
+                else:
+                    dialog = ctk.CTkInputDialog(text="Zadejte název scény v OBS:", title="Scéna OBS")
+                    chosen_scene = dialog.get_input()
+
+                if chosen_scene and chosen_scene.strip():
+                    new_param = f"scene:{chosen_scene.strip()}"
+                    bdata["action_type"] = "obs"
+                    bdata["action_param"] = new_param
+                    if not bdata.get("label"):
+                        bdata["label"] = chosen_scene.strip()[:10]
+                        self.entry_label.delete(0, "end")
+                        self.entry_label.insert(0, bdata["label"])
+                else:
+                    self._populate_target_combo("obs", bdata.get("action_param", ""), bdata)
+                    return
+
+            elif new_param == "CHANGE_OBS_ACTION":
+                dlg = OBSActionChooserDialog(self, bdata.get("action_param", ""), self.obs_controller)
+                res = dlg.get_result()
+                if res:
+                    bdata["action_type"] = "obs"
+                    bdata["action_param"] = res["param"]
+                    if res.get("label"):
+                        bdata["label"] = res["label"]
+                        self.entry_label.delete(0, "end")
+                        self.entry_label.insert(0, bdata["label"])
+                    if res.get("icon"):
+                        bdata["icon"] = res["icon"]
+                    self.config_mgr.save_profile()
+                    self.select_button(idx)
+                    return
+                else:
+                    self._populate_target_combo("obs", bdata.get("action_param", ""), bdata)
+                    return
+
+            else:
+                if bdata.get("action_type") == "hotkey":
+                    new_param = normalize_hotkey(new_param)
+                bdata["action_param"] = new_param
 
             if not bdata.get("label"):
                 atype = bdata.get("action_type", "")
                 if atype == "obs":
-                    short = choice.replace("OBS: ", "").replace("OBS Scéna: ", "").replace("OBS Ztlumit: ", "")
+                    short = choice.replace("OBS: ", "").replace("OBS Scéna: ", "").replace("OBS Ztlumit: ", "").replace("Ztlumit: ", "").replace("Scéna: ", "")
                     bdata["label"] = short[:10]
                 elif atype == "twitch":
                     short = choice.replace("Značka ve streamu", "Značka").replace("Vytvořit klip", "Klip").replace("Spustit reklamu", "Reklama")
@@ -4376,20 +5711,36 @@ class DeckView(ctk.CTkFrame):
             w = self.btn_widgets[idx]
             self._update_button_widget_ui(w, bdata.get("icon", ""), bdata.get("label", ""), bdata.get("custom_icon", ""))
             self._update_inspector_tile(bdata.get("icon", ""), bdata.get("label", ""), bdata.get("custom_icon", ""))
+            self._update_display_cell_ui(idx, bdata.get("icon", ""), bdata.get("label", ""), bdata.get("custom_icon", ""))
+
+            self.lbl_r2_caption.configure(text=self._get_target_row_caption(bdata.get("action_type", "none"), new_param))
+            self._populate_target_combo(bdata.get("action_type", "none"), new_param, bdata)
 
             if self.serial and self.serial.is_connected:
                 self.serial.update_button(idx, bdata.get("icon", ""), bdata.get("label", ""))
 
     def _on_combo_key_released(self, e):
-        """Při ručním vepsání do ComboBoxu (vlastní URL či klávesová zkratka)."""
+        """Při ručním vepsání do ComboBoxu (vlastní URL či klávesová zkratka či audio stopa)."""
         if not self.selected_item or self.selected_item[0] != "button":
             return
         idx = self.selected_item[1]
         new_val = self.combo_target_choice.get().strip()
         bdata = self.config_mgr.profile["buttons"][idx]
-        bdata["action_param"] = new_val
+        atype = bdata.get("action_type", "none")
+        if atype == "obs":
+            old_p = str(bdata.get("action_param", ""))
+            if old_p.startswith("mute:"):
+                bdata["action_param"] = f"mute:{new_val}"
+            elif old_p.startswith("scene:"):
+                bdata["action_param"] = f"scene:{new_val}"
+            else:
+                bdata["action_param"] = new_val
+        elif atype == "hotkey":
+            bdata["action_param"] = normalize_hotkey(new_val)
+        else:
+            bdata["action_param"] = new_val
         self.config_mgr.save_profile()
-        self.lbl_param_detail.configure(text=self._format_action_detail(bdata.get("action_type", "none"), new_val))
+        self.lbl_param_detail.configure(text=self._format_action_detail(atype, bdata["action_param"]))
 
     def _populate_encoder_combo(self, enc_id, edata):
         modes = [
@@ -4398,21 +5749,48 @@ class DeckView(ctk.CTkFrame):
             "Média Windows (Posun skladeb a Play/Pause)",
             "Jas displeje PeciDeck (+/- a Vypnout)",
             "OBS: Přepínání scén (CW další, CCW předchozí)",
-            "OBS: Hlasitost Desktop Audio (+/- a Mute)"
         ]
+        # Přidáme dynamicky všechny audio stopy detekované v OBS
+        obs_audios = self.obs_controller.get_audio_inputs() if self.obs_controller else []
+        seen_tracks = set()
+        for trk in obs_audios:
+            if trk and trk.lower() not in seen_tracks:
+                modes.append(f"OBS Stopa: {trk} (Hlasitost +/- a Mute)")
+                seen_tracks.add(trk.lower())
+
+        for def_a in ["Mikrofon / AUX", "Spotify", "Alert/kofi", "Alert/soundalerts", "Desktop Audio"]:
+            if def_a.lower() not in seen_tracks:
+                modes.append(f"OBS Stopa: {def_a} (Hlasitost +/- a Mute)")
+                seen_tracks.add(def_a.lower())
+
         self.btn_browse.pack_forget()
-        self.combo_target_choice.configure(values=modes)
+        if hasattr(self, "btn_record_hotkey"):
+            self.btn_record_hotkey.pack_forget()
+        self.combo_target_choice.configure(width=320)
 
         cw_type = edata.get("cw", {}).get("action_type", "")
         cw_param = edata.get("cw", {}).get("action_param", "")
         btn_type = edata.get("btn", {}).get("action_type", "")
+
         curr = modes[0]
         if cw_type == "volume" and btn_type == "discord": curr = modes[1]
         elif cw_type == "volume": curr = modes[0]
         elif cw_type == "media": curr = modes[2]
         elif cw_type == "brightness": curr = modes[3]
         elif cw_type == "obs" and "scene" in cw_param: curr = modes[4]
-        elif cw_type == "obs": curr = modes[5]
+        elif cw_type == "obs":
+            # Určíme stopu
+            trk_name = ""
+            if cw_param.startswith("vol_up:"): trk_name = cw_param[7:].strip()
+            elif cw_param.startswith("vol_down:"): trk_name = cw_param[9:].strip()
+            elif cw_param.startswith("mute:"): trk_name = cw_param[5:].strip()
+
+            target_mode = f"OBS Stopa: {trk_name} (Hlasitost +/- a Mute)"
+            if target_mode not in modes and trk_name:
+                modes.append(target_mode)
+            curr = target_mode if target_mode in modes else modes[5]
+
+        self.combo_target_choice.configure(values=modes)
         self.combo_target_choice.set(curr)
         self.combo_target_choice.pack(side="left")
 
@@ -4421,36 +5799,45 @@ class DeckView(ctk.CTkFrame):
         encoders = self.config_mgr.profile.get("encoders", [])
         edata = encoders[idx] if idx < len(encoders) else {}
 
-        if "discord" in choice.lower():
+        choice_low = choice.lower()
+        if "discord" in choice_low:
             edata["name"] = "Discord"
             edata["cw"] = {"action_type": "volume", "action_param": "up"}
             edata["ccw"] = {"action_type": "volume", "action_param": "down"}
             edata["btn"] = {"action_type": "discord", "action_param": "mute"}
             desc = "Discord"
-        elif "hlasitost windows" in choice.lower():
+        elif "hlasitost windows" in choice_low:
             edata["name"] = "Hlasitost"
             edata["cw"] = {"action_type": "volume", "action_param": "up"}
             edata["ccw"] = {"action_type": "volume", "action_param": "down"}
             edata["btn"] = {"action_type": "volume", "action_param": "mute"}
             desc = "Hlasitost"
-        elif "média" in choice.lower():
+        elif "média" in choice_low:
             edata["name"] = "Média"
             edata["cw"] = {"action_type": "media", "action_param": "next"}
             edata["ccw"] = {"action_type": "media", "action_param": "prev"}
             edata["btn"] = {"action_type": "media", "action_param": "play_pause"}
             desc = "Média"
-        elif "jas displeje" in choice.lower():
+        elif "jas displeje" in choice_low:
             edata["name"] = "Jas displeje"
             edata["cw"] = {"action_type": "brightness", "action_param": "up"}
             edata["ccw"] = {"action_type": "brightness", "action_param": "down"}
             edata["btn"] = {"action_type": "brightness", "action_param": "toggle"}
             desc = "Jas"
-        elif "scén" in choice.lower():
+        elif "scén" in choice_low:
             edata["name"] = "Scény OBS"
             edata["cw"] = {"action_type": "obs", "action_param": "next_scene"}
             edata["ccw"] = {"action_type": "obs", "action_param": "prev_scene"}
             edata["btn"] = {"action_type": "obs", "action_param": "toggle_stream"}
             desc = "OBS Scény"
+        elif choice.startswith("OBS Stopa: "):
+            raw_trk = choice[len("OBS Stopa: "):]
+            trk = raw_trk.split(" (Hlasitost")[0].strip()
+            edata["name"] = f"OBS: {trk[:8]}"
+            edata["cw"] = {"action_type": "obs", "action_param": f"vol_up:{trk}"}
+            edata["ccw"] = {"action_type": "obs", "action_param": f"vol_down:{trk}"}
+            edata["btn"] = {"action_type": "obs", "action_param": f"mute:{trk}"}
+            desc = f"OBS: {trk}"
         else:
             target = "Desktop Audio"
             edata["name"] = "OBS Zvuk"
@@ -4482,9 +5869,10 @@ class DeckView(ctk.CTkFrame):
                 param = dialog.get_input()
                 if not param: return
             elif item["type"] == "hotkey":
-                dialog = ctk.CTkInputDialog(text="Zadejte klávesovou zkratku (např. ctrl+shift+m):", title="Klávesová zkratka")
-                param = dialog.get_input()
+                dialog = HotkeyRecorderDialog(self, title="Klávesová zkratka")
+                param = dialog.get_hotkey()
                 if not param: return
+                param = normalize_hotkey(param)
             elif item["type"] == "app":
                 dlg = AppPickerDialog(self, title="Výběr aplikace z počítače a plochy")
                 app_res = dlg.get_result()
@@ -4529,6 +5917,56 @@ class DeckView(ctk.CTkFrame):
                 param = f"mute:{chosen.strip()}"
                 item = dict(item)
                 item["short"] = chosen.strip()[:10]
+
+        elif param == "CUSTOM_VOL_UP":
+            audios = self.obs_controller.get_audio_inputs() if self.obs_controller else []
+            if audios:
+                dlg = OBSItemPickerDialog(self, "Zvýšit hlasitost OBS", "Vyberte audio stopu pro zvýšení hlasitosti (+2 dB):", audios)
+                chosen = dlg.get_result()
+                if not chosen: return
+                param = f"vol_up:{chosen}"
+                item = dict(item)
+                item["short"] = f"{chosen[:8]} +"
+            else:
+                dialog = ctk.CTkInputDialog(text="Zadejte název audio stopy v OBS (např. Spotify, Mic/Aux):", title="Zvýšit hlasitost OBS")
+                chosen = dialog.get_input()
+                if not chosen: return
+                param = f"vol_up:{chosen.strip()}"
+                item = dict(item)
+                item["short"] = f"{chosen.strip()[:8]} +"
+
+        elif param == "CUSTOM_VOL_DOWN":
+            audios = self.obs_controller.get_audio_inputs() if self.obs_controller else []
+            if audios:
+                dlg = OBSItemPickerDialog(self, "Snížit hlasitost OBS", "Vyberte audio stopu pro snížení hlasitosti (-2 dB):", audios)
+                chosen = dlg.get_result()
+                if not chosen: return
+                param = f"vol_down:{chosen}"
+                item = dict(item)
+                item["short"] = f"{chosen[:8]} -"
+            else:
+                dialog = ctk.CTkInputDialog(text="Zadejte název audio stopy v OBS (např. Spotify, Mic/Aux):", title="Snížit hlasitost OBS")
+                chosen = dialog.get_input()
+                if not chosen: return
+                param = f"vol_down:{chosen.strip()}"
+                item = dict(item)
+                item["short"] = f"{chosen.strip()[:8]} -"
+
+        elif param == "CUSTOM_ENC_VOLUME":
+            audios = self.obs_controller.get_audio_inputs() if self.obs_controller else []
+            if audios:
+                dlg = OBSItemPickerDialog(self, "Ovládání hlasitosti stopy OBS", "Vyberte audio stopu v OBS pro ovládání enkodérem (Otáčení = +/- 2 dB, Stisk = Mute):", audios)
+                chosen = dlg.get_result()
+                if not chosen: return
+            else:
+                dialog = ctk.CTkInputDialog(text="Zadejte název audio stopy v OBS (např. Spotify):", title="Ovládání stopy OBS")
+                chosen = dialog.get_input()
+                if not chosen: return
+                chosen = chosen.strip()
+            param = f"vol_up:{chosen}"
+            item = dict(item)
+            item["short"] = f"OBS: {chosen[:8]}"
+            item["target_audio"] = chosen
 
         elif param == "CUSTOM_PAGE":
             pages = self.config_mgr.profile.get("pages", [])
@@ -4667,7 +6105,7 @@ class DeckView(ctk.CTkFrame):
                     "btn": {"action_type": "media", "action_param": "play_pause"}
                 }
                 desc = "Média"
-            elif item["type"] == "obs":
+            elif item["type"] in ("obs", "obs_encoder"):
                 if "scene" in str(param):
                     edata = {
                         "id": idx,
@@ -4678,7 +6116,18 @@ class DeckView(ctk.CTkFrame):
                     }
                     desc = "OBS Scény"
                 else:
-                    target_audio = param[5:] if str(param).startswith("mute:") else "Desktop Audio"
+                    if item.get("target_audio"):
+                        target_audio = item["target_audio"]
+                    elif str(param).startswith("vol_up:"):
+                        target_audio = param[7:].strip()
+                    elif str(param).startswith("vol_down:"):
+                        target_audio = param[9:].strip()
+                    elif str(param).startswith("mute:"):
+                        target_audio = param[5:].strip()
+                    else:
+                        target_audio = "Desktop Audio"
+
+                    new_name = f"OBS: {target_audio[:8]}"
                     edata = {
                         "id": idx,
                         "name": new_name,
@@ -4686,7 +6135,7 @@ class DeckView(ctk.CTkFrame):
                         "ccw": {"action_type": "obs", "action_param": f"vol_down:{target_audio}"},
                         "btn": {"action_type": "obs", "action_param": f"mute:{target_audio}"}
                     }
-                    desc = "OBS Zvuk"
+                    desc = f"OBS: {target_audio}"
             else:
                 edata = {
                     "id": idx,
@@ -4744,7 +6193,12 @@ class DeckView(ctk.CTkFrame):
         itype, idx = self.selected_item[0], self.selected_item[1]
 
         if itype == "button":
-            bdata = {"id": idx, "label": "", "icon": "", "custom_icon": "", "action_type": "none", "action_param": "", "actions": []}
+            bdata = {
+                "id": idx, "label": "", "icon": "", "custom_icon": "",
+                "label2": "", "icon2": "", "custom_icon2": "",
+                "action_type": "none", "action_param": "", "actions": []
+            }
+            self._button_states[idx] = 0
             self.config_mgr.profile["buttons"][idx] = bdata
             self.config_mgr.save_profile()
 

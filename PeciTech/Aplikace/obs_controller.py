@@ -167,8 +167,10 @@ class OBSController:
                 return False
             self._last_connect_attempt = time.time()
 
-            # Ujistíme se, že WebSocket server je v OBS configu aktivní
-            self.ensure_obs_websocket_enabled()
+            # Ujistíme se, že WebSocket server je v OBS configu aktivní (pouze jednou, ne při každém pokusu)
+            if not getattr(self, "_config_checked", False):
+                self.ensure_obs_websocket_enabled()
+                self._config_checked = True
 
             try:
                 self.client = obs.ReqClient(
@@ -237,13 +239,19 @@ class OBSController:
     def _auto_reconnect_loop(self):
         while self._reconnect_running:
             if not self.is_connected:
-                # Pokud je povoleno auto_connect, zkusíme se tiše připojit
-                if self.auto_connect:
+                # Připojovat se pouze v případě, že proces OBS reálně běží (šetří timeouty a CPU)
+                if self.auto_connect and self.is_obs_running():
                     self.connect(silent=True)
-                time.sleep(3.0)
+                for _ in range(30):
+                    if not self._reconnect_running or self.is_connected:
+                        break
+                    time.sleep(0.1)
             else:
-                # Jsme připojeni - ověřujeme spojení lehkým dotazem
-                time.sleep(3.0)
+                # Jsme připojeni - ověřujeme spojení lehkým dotazem každých 6 s
+                for _ in range(60):
+                    if not self._reconnect_running or not self.is_connected:
+                        break
+                    time.sleep(0.1)
                 try:
                     with self._lock:
                         if self.client:
@@ -394,12 +402,40 @@ class OBSController:
             print(f"[OBS] Chyba toggle_studio_mode: {e}")
             return False
 
+    def _get_cached_list(self, key, fallback):
+        try:
+            settings_path = os.path.join(os.path.dirname(__file__), "settings.json")
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    cached = data.get(key, [])
+                    if cached and isinstance(cached, list):
+                        return list(cached)
+        except Exception:
+            pass
+        return list(fallback)
+
+    def _save_cached_list(self, key, values):
+        try:
+            settings_path = os.path.join(os.path.dirname(__file__), "settings.json")
+            data = {}
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            data[key] = list(values)
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+        except Exception:
+            pass
+
     # =========================================================================
     #  SPRÁVA SCÉN
     # =========================================================================
     def get_scenes(self):
         """Vrátí seznam názvů všech scén v OBS jako list[str]."""
         if not self._check_connection():
+            if not self.last_scenes:
+                self.last_scenes = self._get_cached_list("cached_obs_scenes", ["Hlavní scéna", "Kamera", "Hra", "Stream"])
             return self.last_scenes
         try:
             res = self.client.get_scene_list()
@@ -413,9 +449,12 @@ class OBSController:
                     scenes.append(name)
             if scenes:
                 self.last_scenes = scenes
+                self._save_cached_list("cached_obs_scenes", scenes)
             return scenes
         except Exception as e:
             print(f"[OBS] Chyba get_scenes: {e}")
+            if not self.last_scenes:
+                self.last_scenes = self._get_cached_list("cached_obs_scenes", ["Hlavní scéna", "Kamera", "Hra", "Stream"])
             return self.last_scenes
 
     def get_current_scene(self):
@@ -472,7 +511,7 @@ class OBSController:
             if curr in scenes:
                 idx = (scenes.index(curr) - 1) % len(scenes)
             else:
-                idx = len(scenes) - 1
+                idx = 0
             target = scenes[idx]
             self.client.set_current_program_scene(target)
             return target
@@ -486,6 +525,11 @@ class OBSController:
     def get_audio_inputs(self):
         """Vrátí seznam názvů všech audio vstupů/stop v OBS."""
         if not self._check_connection():
+            if not self.last_audio_inputs:
+                self.last_audio_inputs = self._get_cached_list(
+                    "cached_obs_audio_inputs",
+                    ["Mikrofon", "Microfon", "Mic/Aux", "Zvuk plochy", "Desktop Audio"]
+                )
             return self.last_audio_inputs
         try:
             inputs = []
@@ -501,7 +545,7 @@ class OBSController:
             # Přidáme i speciální systémové vstupy (Desktop Audio, Mic)
             try:
                 spec = self.client.get_special_inputs()
-                for attr in ("desktop1", "desktop2", "mic1", "mic2", "mic3", "mic4"):
+                for attr in ("desktop1", "desktop2", "mic1", "mic2", "mic3", "mic4", "desktop_1", "desktop_2", "mic_1", "mic_2"):
                     val = getattr(spec, attr, None)
                     if val and val not in inputs:
                         inputs.append(val)
@@ -510,9 +554,15 @@ class OBSController:
 
             if inputs:
                 self.last_audio_inputs = inputs
+                self._save_cached_list("cached_obs_audio_inputs", inputs)
             return inputs
         except Exception as e:
             print(f"[OBS] Chyba get_audio_inputs: {e}")
+            if not self.last_audio_inputs:
+                self.last_audio_inputs = self._get_cached_list(
+                    "cached_obs_audio_inputs",
+                    ["Mikrofon", "Microfon", "Mic/Aux", "Zvuk plochy", "Desktop Audio"]
+                )
             return self.last_audio_inputs
 
     def toggle_input_mute(self, input_name):

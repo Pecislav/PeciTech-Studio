@@ -104,45 +104,60 @@ class HardwareSerial:
         while self._running:
             if not self.is_connected:
                 self._try_auto_connect()
-                time.sleep(1.5)
+                # Šetrné čekání bez zatížení USB sběrnice a CPU
+                for _ in range(30):
+                    if not self._running or self.is_connected:
+                        break
+                    time.sleep(0.1)
             else:
                 now = time.time()
-                if now - last_heartbeat >= 1.5:
+                if now - last_heartbeat >= 2.0:
                     self.send_command("PING")
                     last_heartbeat = now
                 try:
-                    if self.ser and self.ser.in_waiting:
-                        line = self.ser.readline().decode("utf-8", errors="ignore").strip()
+                    if not self.ser or not self.ser.is_open:
+                        self.disconnect()
+                        continue
+                    # Blokující čtení přímo v jádře s 50ms timeoutem - nulová režie CPU a žádný ClearCommError spam
+                    raw = self.ser.readline()
+                    if raw:
+                        line = raw.decode("utf-8", errors="ignore").strip()
                         if line:
                             self._process_line(line)
-                    else:
-                        time.sleep(0.01)
                 except Exception as e:
                     print(f"[Serial] Zařízení odpojeno: {e}")
                     self.disconnect()
                     time.sleep(1.0)
 
     def _try_auto_connect(self):
-        ports = list(serial.tools.list_ports.comports())
-        # Ignorovat interní ACPI/motherboard sériové porty (např. COM1)
-        ports = [p for p in ports if "acpi" not in (p.hwid or "").lower()]
-        # Seřadit tak, aby USB/CH34/ESP/UART převodníky byly testovány jako první
-        ports.sort(
-            key=lambda p: (
-                0 if any(k in (p.description or "").lower() or k in (p.hwid or "").lower()
-                         for k in ["usb", "ch34", "cp210", "esp", "ftdi", "silicon labs", "uart"])
-                else 1
-            )
-        )
+        target_ports = []
+        if getattr(self, "port_name", None):
+            target_ports.append(self.port_name)
 
-        for port_info in ports:
-            pname = port_info.device
+        try:
+            ports = list(serial.tools.list_ports.comports())
+            ports = [p for p in ports if "acpi" not in (p.hwid or "").lower()]
+            ports.sort(
+                key=lambda p: (
+                    0 if any(k in (p.description or "").lower() or k in (p.hwid or "").lower()
+                             for k in ["usb", "ch34", "cp210", "esp", "ftdi", "silicon labs", "uart"])
+                    else 1
+                )
+            )
+            for p in ports:
+                if p.device not in target_ports:
+                    target_ports.append(p.device)
+        except Exception:
+            pass
+
+        for pname in target_ports:
             test_ser = None
             try:
                 test_ser = serial.Serial()
                 test_ser.port = pname
                 test_ser.baudrate = 115200
-                test_ser.timeout = 0.2
+                test_ser.timeout = 0.05
+                test_ser.write_timeout = 0.5
                 test_ser.dtr = False
                 test_ser.rts = False
                 test_ser.open()

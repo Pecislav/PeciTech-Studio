@@ -144,10 +144,25 @@ class ActionModal(ctk.CTkToplevel):
             self.media_combo.pack(anchor="w", pady=4)
 
         elif atype == "hotkey":
-            ctk.CTkLabel(self.detail_frame, text="Kombinace kláves (např. ctrl+shift+m nebo win+shift+s):", text_color="#CBD5E1").pack(anchor="w", pady=4)
-            self.entry_hotkey = ctk.CTkEntry(self.detail_frame, width=320, height=28, fg_color="#0E0F15", border_color="#282B3C", border_width=1, corner_radius=7, placeholder_text="např. ctrl+alt+t")
+            ctk.CTkLabel(self.detail_frame, text="Kombinace kláves (stiskněte tlačítko nebo vepište):", text_color="#CBD5E1").pack(anchor="w", pady=4)
+            f_hk = ctk.CTkFrame(self.detail_frame, fg_color="transparent")
+            f_hk.pack(fill="x", pady=4)
+            self.entry_hotkey = ctk.CTkEntry(f_hk, width=220, height=30, fg_color="#0E0F15", border_color="#282B3C", border_width=1, corner_radius=7, placeholder_text="např. ctrl+shift+m")
             self.entry_hotkey.insert(0, param if isinstance(param, str) else "")
-            self.entry_hotkey.pack(anchor="w", pady=4)
+            self.entry_hotkey.pack(side="left")
+            btn_rec = ctk.CTkButton(
+                f_hk,
+                text="⌨ Zaznamenat...",
+                width=110,
+                height=30,
+                fg_color="#FF7A29",
+                hover_color="#FFA05C",
+                text_color="#0B0B0E",
+                font=ctk.CTkFont(weight="bold"),
+                corner_radius=7,
+                command=self._record_hotkey
+            )
+            btn_rec.pack(side="left", padx=8)
 
         elif atype == "app":
             ctk.CTkLabel(self.detail_frame, text="Cesta k aplikaci / souboru:", text_color="#CBD5E1").pack(anchor="w", pady=4)
@@ -247,6 +262,15 @@ class ActionModal(ctk.CTkToplevel):
             self.entry_path.delete(0, "end")
             self.entry_path.insert(0, filename)
 
+    def _record_hotkey(self):
+        from ui.hotkey_dialog import HotkeyRecorderDialog
+        curr = self.entry_hotkey.get().strip() if hasattr(self, "entry_hotkey") else ""
+        dlg = HotkeyRecorderDialog(self, current_value=curr, title="Záznam klávesové zkratky")
+        res = dlg.get_hotkey()
+        if res:
+            self.entry_hotkey.delete(0, "end")
+            self.entry_hotkey.insert(0, res)
+
     def _build_encoder_ui(self):
         f = ctk.CTkFrame(self, fg_color="#14151E", corner_radius=12, border_width=1, border_color="#242738")
         f.pack(fill="both", expand=True, padx=20, pady=8)
@@ -288,7 +312,8 @@ class ActionModal(ctk.CTkToplevel):
             if atype == "media":
                 self.item_data["action_param"] = self.media_combo.get()
             elif atype == "hotkey":
-                self.item_data["action_param"] = self.entry_hotkey.get().strip()
+                from ui.hotkey_dialog import normalize_hotkey
+                self.item_data["action_param"] = normalize_hotkey(self.entry_hotkey.get().strip())
             elif atype == "app":
                 self.item_data["action_param"] = self.entry_path.get().strip()
             elif atype == "url":
