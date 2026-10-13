@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="PeciTech/Aplikace/assets/PeciTech_logo_transparent.png" width="240" alt="PeciTech Studio Logo" />
-</p>
+# PeciTech-Studio
 
 <p align="center">
   <strong>The Ultimate Open-Source Stream Controller & Macro Deck Ecosystem</strong>
